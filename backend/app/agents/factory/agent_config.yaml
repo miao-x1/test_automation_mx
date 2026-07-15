@@ -1,0 +1,304 @@
+# Agent Platform Configuration
+# 统一 Agent 配置文件
+# 所有 Agent 由 AgentFactory 统一管理，禁止业务代码直接 new Agent
+
+agents:
+  # ========== 核心业务 Agent ==========
+  - agent_name: requirement_agent
+    class_path: app.agent.requirement.requirement_agent.RequirementAgent
+    display_name: 需求解析Agent
+    description: 解析自然语言需求，拆分为结构化测试步骤
+    model: qwen-plus
+    temperature: 0.3
+    system_prompt: "你是需求分析专家。解析需求并提取测试意图、步骤、目标URL。"
+
+  - agent_name: case_agent
+    class_path: app.agent.case.case_agent.CaseAgent
+    display_name: 用例生成Agent
+    description: 统一测试用例生成（Web UI / RAG增强 / API流式）
+    model: deepseek-chat
+    temperature: 0.4
+    system_prompt: "你是测试用例设计专家。根据页面元素生成结构化测试用例。"
+
+  - agent_name: script_generation_agent
+    class_path: app.agent.script.script_generation_agent.ScriptGenerationAgent
+    display_name: 脚本生成Agent（统一入口）
+    description: 统一脚本生成入口，整合复用检查+策略选择+4级降级链+质量评估
+    model: qwen-coder-plus
+    temperature: 0.2
+    max_tokens: 8192
+    system_prompt: "你是自动化脚本生成专家。根据审查通过的用例生成Playwright Python脚本。"
+
+  - agent_name: execution_agent
+    class_path: app.agent.execution.execution_agent.ExecutionAgent
+    display_name: 脚本执行Agent
+    description: 执行 Playwright 脚本，实时流式日志，失败分析
+    model: qwen-plus
+    temperature: 0.3
+    system_prompt: "你是脚本执行引擎。执行测试脚本并报告结果。"
+
+  - agent_name: feedback_agent
+    class_path: app.agent.feedback.feedback_agent.FeedbackAgent
+    display_name: 反馈分析Agent
+    description: 分析执行失败原因，生成修复建议
+    model: claude-3-5-sonnet
+    temperature: 0.5
+    system_prompt: "你是测试失败分析专家。分析失败原因并给出修复建议。"
+
+  - agent_name: review_agent
+    class_path: app.agent.case.review_agent.ReviewAgent
+    display_name: 用例审查Agent
+    description: 审查测试用例完整性和可执行性
+    model: claude-3-5-sonnet
+    temperature: 0.3
+    system_prompt: "你是一个专业的测试用例审查专家。检查用例完整性、可执行性，给出批准/拒绝。"
+
+  # ========== RAG / 知识 Agent ==========
+  - agent_name: rag_agent
+    class_path: app.agent.rag.rag_agent.RAGAgent
+    display_name: RAG检索Agent
+    description: 通过 ContextRouter 检索页面元素、历史用例、历史脚本
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: embedding_agent
+    class_path: app.agent.rag.embedding_agent.EmbeddingAgent
+    display_name: 向量化Agent
+    description: 读取元素库，生成 Embedding，写入 Milvus
+    model: text-embedding-v3
+    temperature: 0.0
+    system_prompt: null
+
+  - agent_name: retrieval_agent
+    class_path: app.agent.rag.retrieval_agent.RetrievalAgent
+    display_name: 元素检索Agent
+    description: 通过 ContextRouter 检索页面元素
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: knowledge_update_agent
+    class_path: app.agent.requirement.knowledge_update_agent.KnowledgeUpdateAgent
+    display_name: 知识更新Agent
+    description: 执行后自动持久化到 Milvus + Neo4j
+    model: null
+    temperature: null
+    system_prompt: null
+
+  # ========== 图谱 Agent ==========
+  - agent_name: graph_agent
+    class_path: app.agent.graph.graph_agent.GraphAgent
+    display_name: 图谱推理Agent
+    description: 全量构建图谱，基于图数据库推理页面操作路径
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: relation_agent
+    class_path: app.agent.graph.relation_agent.RelationAgent
+    display_name: 页面关联Agent
+    description: 推理页面间导航关系，构建流程图
+    model: qwen-plus
+    temperature: 0.3
+    system_prompt: "你是页面关系分析专家。分析页面间的导航和数据流转关系。"
+
+  # ========== 视觉 Agent ==========
+  - agent_name: element_agent
+    class_path: app.agent.vision.element_agent.ElementAgent
+    display_name: 视觉元素识别Agent
+    description: 使用 Qwen Vision 识别页面交互元素
+    model: qwen-vl-plus
+    temperature: 0.3
+    system_prompt: "你是UI元素识别专家。从截图中识别可交互元素。"
+
+  - agent_name: page_crawler_agent
+    class_path: app.agent.vision.page_crawler_agent.PageCrawlerAgent
+    display_name: 页面抓取Agent
+    description: 使用 Playwright 抓取页面 DOM 元素和定位器
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: element_merge_agent
+    class_path: app.agent.vision.element_merge_agent.ElementMergeAgent
+    display_name: 元素融合Agent
+    description: 融合 Vision 元素与 DOM 元素
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: playwright_agent
+    class_path: app.agent.vision.playwright_agent.PlaywrightAgent
+    display_name: Playwright脚本生成Agent
+    description: 基于元素库生成 Playwright 脚本
+    model: null
+    temperature: null
+    system_prompt: null
+
+  # ========== 脚本 Agent ==========
+  - agent_name: strategy_agent
+    class_path: app.agent.script.strategy_agent.StrategyAgent
+    display_name: 策略选择Agent
+    description: 根据可用数据选择最佳脚本生成策略
+    model: deepseek-chat
+    temperature: 0.2
+    system_prompt: "你是测试策略专家。根据可用数据选择最佳脚本生成策略。"
+
+  - agent_name: script_reuse_agent
+    class_path: app.agent.script.script_reuse_agent.ScriptReuseAgent
+    display_name: 脚本复用Agent
+    description: 判断当前需求是否匹配历史脚本（相似度≥0.90）
+    model: qwen-plus
+    temperature: 0.2
+    system_prompt: "你是脚本复用分析专家。判断是否可以复用历史脚本。"
+
+  # ========== 需求 Agent ==========
+  - agent_name: fusion_agent
+    class_path: app.agent.requirement.fusion_agent.FusionAgent
+    display_name: 多模态融合Agent
+    description: 融合多模态解析结果为统一需求
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: test_type_classifier
+    class_path: app.agent.requirement.test_type_classifier_agent.TestTypeClassifierAgent
+    display_name: 测试类型分类Agent
+    description: 规则引擎+LLM混合分类测试类型（WEB/API/ANDROID/PERFORMANCE）
+    model: qwen-plus
+    temperature: 0.1
+    system_prompt: "你是测试类型分类专家。判断需求属于WEB/API/ANDROID/PERFORMANCE类型。"
+
+  # ========== 存储 Agent ==========
+  - agent_name: storage_agent
+    class_path: app.agent.storage.storage_agent.StorageAgent
+    display_name: 存储Agent
+    description: 存储脚本+用例到 DB + Milvus + Neo4j
+    model: null
+    temperature: null
+    system_prompt: null
+
+  # ========== 调度 Agent ==========
+  - agent_name: scheduler_agent
+    class_path: app.agent.scheduling.scheduler_agent.SchedulerAgent
+    display_name: 定时调度Agent
+    description: APScheduler 管理定时任务
+    model: null
+    temperature: null
+    system_prompt: null
+
+  # ========== TestCase 流水线 Agent ==========
+  - agent_name: requirement_analysis_agent
+    class_path: app.agent.testcase.requirement_analysis_agent.RequirementAnalysisAgent
+    display_name: 需求分析Agent
+    description: 解析测试需求为结构化信息
+    model: qwen-plus
+    temperature: 0.3
+    system_prompt: "你是需求分析专家。解析测试需求为结构化信息。"
+
+  - agent_name: test_point_analysis_agent
+    class_path: app.agent.testcase.test_point_analysis_agent.TestPointAnalysisAgent
+    display_name: 测试点分析Agent
+    description: 分析需求生成测试点（功能/错误/边界/权限/数据验证）
+    model: qwen-plus
+    temperature: 0.4
+    system_prompt: "你是测试点分析专家。生成全面的测试点。"
+
+  - agent_name: testcase_generator_agent
+    class_path: app.agent.testcase.testcase_generator_agent.TestCaseGeneratorAgent
+    display_name: 用例生成Agent
+    description: 从测试点+RAG上下文生成标准测试用例
+    model: qwen-plus
+    temperature: 0.5
+    system_prompt: "你是测试用例生成专家。根据测试点生成标准测试用例。"
+
+  - agent_name: testcase_review_agent
+    class_path: app.agent.testcase.testcase_review_agent.TestCaseReviewAgent
+    display_name: 用例审查Agent
+    description: 审查测试用例质量
+    model: qwen-plus
+    temperature: 0.2
+    system_prompt: "你是测试用例审查专家。审查用例质量并给出评分。"
+
+  - agent_name: knowledge_sync_agent
+    class_path: app.agent.testcase.knowledge_sync_agent.KnowledgeSyncAgent
+    display_name: 知识同步Agent
+    description: MySQL业务数据同步到 Milvus + Neo4j
+    model: null
+    temperature: null
+    system_prompt: null
+
+  # ========== Case 辅助 Agent ==========
+  - agent_name: requirement_understanding_agent
+    class_path: app.agent.case.requirement_understanding_agent.RequirementUnderstandingAgent
+    display_name: 需求理解Agent
+    description: L1 Agent - 将非结构化输入转为测试意图
+    model: qwen-plus
+    temperature: 0.3
+    system_prompt: "你是需求理解专家。提取测试意图、功能点、API候选。"
+
+  - agent_name: mindmap_agent
+    class_path: app.agent.case.mindmap_agent.MindMapAgent
+    display_name: 脑图生成Agent
+    description: 从测试用例生成思维导图数据结构
+    model: qwen-plus
+    temperature: 0.5
+    system_prompt: "你是脑图生成专家。从测试用例生成思维导图。"
+
+  - agent_name: document_parser
+    class_path: app.agent.case.document_parser.DocumentParserAgent
+    display_name: 文档解析Agent
+    description: 解析 PDF/Word/URL/Text/Swagger 输入
+    model: deepseek-chat
+    temperature: 0.2
+    system_prompt: "你是一个专业的需求文档解析专家。"
+
+  - agent_name: api_extraction_agent
+    class_path: app.agent.case.api_extraction_agent.APIExtractionAgent
+    display_name: API提取Agent
+    description: 从需求文本提取API元数据
+    model: qwen-plus
+    temperature: 0.2
+    system_prompt: "你是API分析专家。提取API元数据。"
+
+  - agent_name: test_normalization_agent
+    class_path: app.agent.case.test_normalization_agent.TestNormalizationAgent
+    display_name: 测试标准化Agent
+    description: L3 Agent - 编译结构化用例为执行引擎就绪模型
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: image_parser
+    class_path: app.agent.case.image_parser.ImageParserAgent
+    display_name: 图片解析Agent
+    description: 使用 Qwen-VL 解析截图识别UI元素
+    model: qwen-vl-plus
+    temperature: 0.3
+    system_prompt: "你是UI测试分析师。从截图中识别页面元素和交互点。"
+
+  - agent_name: retriever_agent
+    class_path: app.agent.case.retriever_agent.RetrieverAgent
+    display_name: RAG检索Agent
+    description: 通过 ContextRouter 检索知识库
+    model: null
+    temperature: null
+    system_prompt: null
+
+  - agent_name: rag_context_agent
+    class_path: app.agent.case.rag_context_agent.RAGContextAgent
+    display_name: RAG上下文Agent
+    description: L1 RAG知识增强，检索DOCUMENT类型上下文
+    model: null
+    temperature: null
+    system_prompt: null
+
+# ========== 模型别名映射 ==========
+model_aliases:
+  qwen: qwen-plus
+  qwen_vl: qwen-vl-max
+  qwen_coder: qwen-coder-plus
+  deepseek: deepseek-chat
+  claude: claude-3-5-sonnet
+  embedding: text-embedding-v3

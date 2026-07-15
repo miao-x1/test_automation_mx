@@ -1,0 +1,293 @@
+# TaskFlow 定义文件
+# 所有业务流程通过 TaskOrchestrator 统一编排
+# 禁止 API 层直接调用 Agent
+
+flows:
+  # ========== 图片测试流程 ==========
+  - flow_name: image_test_flow
+    description: "图片测试流程：截图分析 → 用例生成 → 脚本生成"
+    steps:
+      - step_name: analyze_image
+        agent_name: element_agent
+        action: analyze
+        description: "分析页面截图，识别UI元素"
+        required: true
+        on_failure: abort
+
+      - step_name: generate_cases
+        agent_name: case_agent
+        action: generate
+        description: "根据元素生成测试用例"
+        required: true
+        on_failure: abort
+        input_from: analyze_image
+
+      - step_name: generate_script
+        agent_name: script_generation_agent
+        action: generate
+        description: "根据用例生成测试脚本"
+        required: true
+        on_failure: abort
+        input_from: generate_cases
+
+  # ========== 需求测试流程 ==========
+  - flow_name: requirement_test_flow
+    description: "需求测试流程：需求解析 → 类型分类 → RAG检索 → 用例生成 → 用例审查 → 脚本生成"
+    steps:
+      - step_name: parse_requirement
+        agent_name: requirement_agent
+        action: parse
+        description: "解析自然语言需求"
+        required: true
+        on_failure: abort
+
+      - step_name: classify_type
+        agent_name: test_type_classifier
+        action: classify
+        description: "分类测试类型（WEB/API/PERFORMANCE）"
+        required: false
+        on_failure: continue
+        input_from: parse_requirement
+
+      - step_name: rag_retrieve
+        agent_name: rag_agent
+        action: retrieve
+        description: "RAG检索历史知识"
+        required: false
+        on_failure: continue
+        input_from: parse_requirement
+
+      - step_name: generate_cases
+        agent_name: case_agent
+        action: generate
+        description: "生成测试用例"
+        required: true
+        on_failure: abort
+        input_from: rag_retrieve
+
+      - step_name: review_cases
+        agent_name: review_agent
+        action: review
+        description: "审查测试用例"
+        required: false
+        on_failure: continue
+        input_from: generate_cases
+
+      - step_name: generate_script
+        agent_name: script_generation_agent
+        action: generate
+        description: "生成测试脚本"
+        required: true
+        on_failure: abort
+        input_from: review_cases
+
+  # ========== 知识入库流程 ==========
+  - flow_name: knowledge_ingest_flow
+    description: "知识入库流程：文档解析 → 向量化 → 存储"
+    steps:
+      - step_name: parse_document
+        agent_name: document_parser
+        action: parse
+        description: "解析上传的文档"
+        required: true
+        on_failure: abort
+
+      - step_name: embed_elements
+        agent_name: embedding_agent
+        action: embed
+        description: "向量化元素"
+        required: true
+        on_failure: abort
+        input_from: parse_document
+
+      - step_name: store_knowledge
+        agent_name: storage_agent
+        action: store
+        description: "存储到三库"
+        required: true
+        on_failure: abort
+        input_from: embed_elements
+
+  # ========== 执行流程 ==========
+  - flow_name: execution_flow
+    description: "脚本执行流程：执行 → 反馈分析 → 知识更新"
+    steps:
+      - step_name: execute_script
+        agent_name: execution_agent
+        action: execute
+        description: "执行测试脚本"
+        required: true
+        on_failure: abort
+
+      - step_name: analyze_feedback
+        agent_name: feedback_agent
+        action: analyze
+        description: "分析执行结果"
+        required: false
+        on_failure: continue
+        input_from: execute_script
+
+      - step_name: update_knowledge
+        agent_name: knowledge_update_agent
+        action: update
+        description: "更新知识库"
+        required: false
+        on_failure: continue
+        input_from: analyze_feedback
+
+  # ========== 图谱构建流程 ==========
+  - flow_name: graph_build_flow
+    description: "图谱构建流程：关系推理 → 图谱构建"
+    steps:
+      - step_name: infer_relations
+        agent_name: relation_agent
+        action: infer
+        description: "推理页面关系"
+        required: true
+        on_failure: abort
+
+      - step_name: build_graph
+        agent_name: graph_agent
+        action: build
+        description: "构建知识图谱"
+        required: true
+        on_failure: abort
+        input_from: infer_relations
+
+  # ========== TestCase流水线 ==========
+  - flow_name: testcase_pipeline_flow
+    description: "TestCase流水线：需求分析 → 测试点 → 用例生成 → 用例审查 → 知识同步"
+    steps:
+      - step_name: analyze_requirement
+        agent_name: requirement_analysis_agent
+        action: analyze
+        description: "需求分析"
+        required: true
+        on_failure: abort
+
+      - step_name: analyze_test_points
+        agent_name: test_point_analysis_agent
+        action: analyze
+        description: "测试点分析"
+        required: true
+        on_failure: abort
+        input_from: analyze_requirement
+
+      - step_name: generate_cases
+        agent_name: testcase_generator_agent
+        action: generate
+        description: "生成测试用例"
+        required: true
+        on_failure: abort
+        input_from: analyze_test_points
+
+      - step_name: review_cases
+        agent_name: testcase_review_agent
+        action: review
+        description: "审查用例"
+        required: false
+        on_failure: continue
+        input_from: generate_cases
+
+      - step_name: sync_knowledge
+        agent_name: knowledge_sync_agent
+        action: sync
+        description: "知识同步"
+        required: false
+        on_failure: continue
+        input_from: review_cases
+
+  # ========== 统一测试生成流程（唯一入口） ==========
+  # 用户可自由组合输入：文本 / 图片 / 文件 / URL
+  # 可选步骤通过 condition 控制
+  # condition 语法：has:key / no:key / flag_name / and:cond1,cond2
+  - flow_name: unified_test_flow
+    description: "统一测试生成入口：支持文本/图片/文件任意组合输入，含复用检查、知识图谱、人工审查等可选步骤"
+    steps:
+      # Step 1: 图片元素识别（仅当有图片时执行）
+      - step_name: analyze_image
+        agent_name: element_agent
+        action: analyze
+        description: "分析页面截图，识别UI元素和页面URL"
+        required: false
+        on_failure: continue
+        condition: "has:image_paths"
+
+      # Step 2: 需求解析（仅当有需求文本时执行；纯图片场景跳过）
+      - step_name: parse_requirement
+        agent_name: requirement_agent
+        action: parse
+        description: "解析自然语言需求为结构化测试信息"
+        required: false
+        on_failure: continue
+        condition: "has:requirement"
+
+      # Step 3: 类型识别
+      - step_name: classify_type
+        agent_name: test_type_classifier
+        action: classify
+        description: "识别测试类型（WEB/API/Android/Performance）"
+        required: false
+        on_failure: continue
+        condition: "no:test_type"
+
+      # Step 4: 复用检查（可选，默认开启）
+      - step_name: reuse_check
+        agent_name: script_reuse_agent
+        action: execute
+        description: "检查是否有可复用的历史脚本"
+        required: false
+        on_failure: continue
+        condition: "enable_reuse_check"
+
+      # Step 5: RAG检索（仅当有 target_url 时执行，无 URL 不检索避免误匹配）
+      - step_name: rag_retrieve
+        agent_name: rag_agent
+        action: retrieve
+        description: "RAG检索历史页面元素和用例"
+        required: false
+        on_failure: continue
+        condition: "has:target_url"
+
+      # Step 6: 页面关联推理（可选，默认开启）
+      - step_name: discover_relations
+        agent_name: relation_agent
+        action: execute
+        description: "推理页面间关联关系"
+        required: false
+        on_failure: continue
+        condition: "enable_knowledge_graph"
+
+      # Step 7: 图谱路径推理（可选，默认开启）
+      - step_name: graph_reason
+        agent_name: graph_agent
+        action: execute
+        description: "基于知识图谱推理测试路径"
+        required: false
+        on_failure: continue
+        condition: "enable_knowledge_graph"
+
+      # Step 8: 用例生成（必需）
+      - step_name: generate_cases
+        agent_name: case_agent
+        action: generate
+        description: "生成测试用例"
+        required: true
+        on_failure: abort
+
+      # Step 9: 用例审查（可选，默认关闭）
+      - step_name: review_cases
+        agent_name: review_agent
+        action: review
+        description: "审查用例完整性和可执行性"
+        required: false
+        on_failure: continue
+        condition: "enable_human_review"
+
+      # Step 10: 脚本生成（必需）
+      - step_name: generate_script
+        agent_name: script_generation_agent
+        action: execute
+        description: "统一脚本生成（含4级降级链）"
+        required: true
+        on_failure: abort

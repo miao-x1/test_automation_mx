@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UI Automation 数据库ER图</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1890ff;
+            border-bottom: 2px solid #1890ff;
+            padding-bottom: 10px;
+        }
+        .info {
+            background: #e6f7ff;
+            border-left: 4px solid #1890ff;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .mermaid {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .legend {
+            background: #fafafa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .legend h3 {
+            margin-top: 0;
+        }
+        .legend ul {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>UI Automation - 数据库ER图</h1>
+        
+        <div class="info">
+            <strong>第一阶段数据库设计</strong><br>
+            设计日期: 2026-06-04<br>
+            数据库: MySQL 8.0 / SQLite 3<br>
+            ORM: SQLAlchemy 2.x
+        </div>
+
+        <div class="mermaid">
+erDiagram
+    TASK ||--o{ IMAGE_FILE : "has many"
+    TASK ||--|| ANALYSIS_RESULT : "has one"
+    TASK ||--|| SCRIPT : "has one"
+
+    TASK {
+        int id PK "主键ID"
+        varchar task_name "任务名称"
+        enum status "任务状态"
+        varchar error_message "错误信息"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    IMAGE_FILE {
+        int id PK "主键ID"
+        int task_id FK "任务ID"
+        varchar original_filename "原始文件名"
+        varchar file_path UK "文件路径"
+        bigint file_size "文件大小"
+        varchar file_type "MIME类型"
+        int width "图片宽度"
+        int height "图片高度"
+        char md5_hash "MD5哈希"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    ANALYSIS_RESULT {
+        int id PK "主键ID"
+        int task_id FK_UK "任务ID"
+        varchar agent_type "Agent类型"
+        varchar page_type "页面类型"
+        text elements_json "UI元素JSON"
+        text interactions_json "交互JSON"
+        text layout_json "布局JSON"
+        text analysis_summary "分析总结"
+        text raw_output "原始输出"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    SCRIPT {
+        int id PK "主键ID"
+        int task_id FK_UK "任务ID"
+        varchar script_type "脚本类型"
+        text script_content "脚本内容"
+        varchar script_language "脚本语言"
+        varchar file_path "文件路径"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+        </div>
+
+        <div class="legend">
+            <h3>图例说明</h3>
+            <ul>
+                <li><strong>PK</strong>: Primary Key (主键)</li>
+                <li><strong>FK</strong>: Foreign Key (外键)</li>
+                <li><strong>UK</strong>: Unique Key (唯一键)</li>
+                <li><strong>FK_UK</strong>: Foreign Key + Unique Key (外键+唯一约束)</li>
+            </ul>
+
+            <h3>关系说明</h3>
+            <ul>
+                <li><strong>||--o{</strong>: 一对多关系 (One to Many)</li>
+                <li><strong>||--||</strong>: 一对一关系 (One to One)</li>
+            </ul>
+
+            <h3>表关系</h3>
+            <ul>
+                <li><strong>Task → ImageFile</strong>: 一个任务可以有多张图片，级联删除</li>
+                <li><strong>Task → AnalysisResult</strong>: 一个任务对应一个分析结果，级联删除</li>
+                <li><strong>Task → Script</strong>: 一个任务对应一个测试脚本，级联删除</li>
+            </ul>
+
+            <h3>业务流程</h3>
+            <ol>
+                <li>用户上传UI截图 → 创建Task + ImageFile</li>
+                <li>启动分析 → Task状态更新为processing</li>
+                <li>Agent分析图片 → 创建AnalysisResult</li>
+                <li>生成测试脚本 → 创建Script</li>
+                <li>完成 → Task状态更新为success</li>
+            </ol>
+        </div>
+
+        <div class="info">
+            <strong>文档位置</strong><br>
+            详细设计文档: <code>backend/docs/DATABASE_DESIGN.md</code><br>
+            SQL建表语句: <code>backend/docs/database_schema.sql</code><br>
+            ORM模型: <code>backend/app/models/</code>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#e6f7ff',
+                primaryTextColor: '#000',
+                primaryBorderColor: '#1890ff',
+                lineColor: '#1890ff',
+                secondaryColor: '#f0f0f0',
+                tertiaryColor: '#fafafa'
+            }
+        });
+    </script>
+</body>
+</html>

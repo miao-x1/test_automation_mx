@@ -1,0 +1,15 @@
+{
+  "task_id": "test_report_001",
+  "execution_id": "exec_001",
+  "timestamp": "2026-07-07T19:24:28.540955",
+  "summary": {
+    "total": 10,
+    "passed": 8,
+    "failed": 2,
+    "skipped": 0,
+    "pass_rate": 80.0
+  },
+  "duration": 120.5,
+  "results": [],
+  "logs": "PASSED test_login\nFAILED test_logout - ElementNotFound"
+}

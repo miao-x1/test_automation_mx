@@ -1,0 +1,45 @@
+# FastAPI核心
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# 数据库
+sqlalchemy==2.0.25
+alembic==1.13.1
+pymysql==1.1.0
+cryptography==41.0.7
+
+# 数据验证
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# SSE支持
+sse-starlette==1.8.2
+
+# 日志
+loguru==0.7.2
+
+# 工具库
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.27.0
+
+# CORS
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt>=4.0.0,<4.1.0
+
+# 测试生成
+playwright==1.41.0
+
+# 时间处理
+python-dateutil==2.8.2
+
+# 图数据库
+neo4j==6.2.0
+
+# MCP (Model Context Protocol)
+mcp>=1.0.0
+
+# 定时任务调度
+apscheduler>=3.10.0

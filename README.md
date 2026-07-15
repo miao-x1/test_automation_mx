@@ -1,5 +1,24 @@
-# UI-Automation — AI驱动全自动测试平台
+test_automation_mx
 
+AI-driven UI Automation Testing Platform
+
+技术栈:
+FastAPI
+React + TypeScript
+Playwright
+RAG
+Milvus
+Neo4j
+AutoGen
+MySQL
+
+功能:
+- AI需求分析
+- UI元素识别
+- 自动生成测试用例
+- 自动生成Playwright脚本
+- 自动执行测试
+- 测试报告生成
 > 需求 → AI生成用例 → 执行 → 报告，全流程闭环
 
 ---

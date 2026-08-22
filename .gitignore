@@ -34,8 +34,26 @@ frontend/dist/
 
 # 数据库
 *.db
+*.sqlite
 *.sqlite3
 
 # OS
 .DS_Store
 Thumbs.db
+
+# TRAE
+.trae/
+.trae-html-share-packages/
+
+# Runtime data
+data/
+
+# Test reports
+reports/
+backend/reports/
+backend/*_report.json
+
+# Diagnostic files
+diag_*.txt
+*_diag.txt
+realtime_diag.txt

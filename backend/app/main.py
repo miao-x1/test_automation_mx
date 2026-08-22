@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.exceptions import BusinessError
 from app.core.logger import log
 from app.db.database import init_db, close_db
 from app.api import api_router
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
 
     # 创建上传目录
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    Path(settings.REPORT_DIR).mkdir(parents=True, exist_ok=True)
+    Path(settings.DATA_DIR).mkdir(parents=True, exist_ok=True)
 
     # 清理Milvus残留锁文件（防止上次异常退出后锁文件残留）
     _cleanup_milvus_lock()
@@ -53,6 +56,14 @@ async def lifespan(app: FastAPI):
     from app.core.providers import init_providers
     init_providers()
     log.info("Provider 初始化完成")
+
+    # ApplicationContainer 初始化 — 预热重量级服务 (LLM/Embedding/Vision/Marker)
+    # 将 "首次请求时初始化" 提前到 "应用启动时初始化"
+    try:
+        from app.bootstrap import get_initializer
+        await get_initializer().initialize_all()
+    except Exception as e:
+        log.warning(f"ApplicationContainer 初始化失败 (非致命): {e}", exc_info=True)
 
     # Milvus延迟初始化：不在启动时连接，等首次使用时自动建立
     # 这样避免多进程启动时抢锁
@@ -82,6 +93,42 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning(f"ExecutionQueue 启动失败: {e}")
 
+    # 启动企业级 Agent Runtime (TaskDispatcher + WorkerPool + Collector + Scheduler)
+    try:
+        from app.runtime.enterprise import (
+            get_task_dispatcher, get_worker_pool,
+            get_response_collector, get_stream_publisher,
+            get_task_scheduler, DispatcherMode,
+        )
+        # 初始化各组件
+        dispatcher = get_task_dispatcher(mode=DispatcherMode.STANDALONE)
+        pool = get_worker_pool(size=4)
+        collector = get_response_collector()
+        publisher = get_stream_publisher()
+        scheduler = get_task_scheduler(dispatcher=dispatcher)
+
+        # 注入依赖 (Dispatcher ↔ WorkerPool)
+        dispatcher.set_worker_pool(pool)
+        pool.set_dispatcher(dispatcher)
+        # Collector → StreamPublisher
+        collector.set_stream_publisher(publisher)
+
+        # 启动
+        await pool.start()
+        await dispatcher.start()
+        await scheduler.start()
+        log.info("企业级 Agent Runtime 启动完成 (Dispatcher + WorkerPool + Collector + Scheduler)")
+    except Exception as e:
+        log.warning(f"企业级 Agent Runtime 启动失败: {e}", exc_info=True)
+
+    # 启动 Runtime v2 (统一 Agent 运行时 — Dispatcher/Worker/Collector/SSE)
+    try:
+        from app.runtime.v2 import start_runtime
+        await start_runtime(worker_count=4)
+        log.info("Runtime v2 启动完成 (Dispatcher → WorkerPool → AgentWorker → Collector → SSE)")
+    except Exception as e:
+        log.warning(f"Runtime v2 启动失败: {e}", exc_info=True)
+
     yield
 
     # 停止 TaskQueue
@@ -100,6 +147,29 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # 停止企业级 Agent Runtime
+    try:
+        from app.runtime.enterprise import (
+            get_task_dispatcher, get_worker_pool, get_task_scheduler,
+        )
+        scheduler = get_task_scheduler()
+        await scheduler.stop()
+        dispatcher = get_task_dispatcher()
+        await dispatcher.stop()
+        pool = get_worker_pool()
+        await pool.stop()
+        log.info("企业级 Agent Runtime 已停止")
+    except Exception:
+        pass
+
+    # 停止 Runtime v2
+    try:
+        from app.runtime.v2 import stop_runtime
+        await stop_runtime()
+        log.info("Runtime v2 已停止")
+    except Exception:
+        pass
+
     # 关闭时执行
     try:
         from app.agents.factory import AgentRegistry
@@ -115,6 +185,13 @@ async def lifespan(app: FastAPI):
         _cleanup_lock_file()
     except Exception:
         pass
+    # 关闭 ApplicationContainer — 释放重量级服务资源
+    try:
+        from app.bootstrap import get_initializer
+        await get_initializer().shutdown_all()
+    except Exception as e:
+        log.warning(f"ApplicationContainer 关闭失败: {e}")
+
     close_db()
     log.info("应用已关闭")
 
@@ -138,6 +215,11 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# 操作日志中间件(自动记录API请求到操作日志)
+# 使用纯 ASGI middleware 而非 BaseHTTPMiddleware，避免 SSE/StreamingResponse 连接泄漏
+from app.core.operation_log_middleware import OperationLogMiddleware
+app.add_middleware(OperationLogMiddleware)
+
 # 注册路由
 app.include_router(api_router)
 
@@ -146,13 +228,57 @@ from app.mcp import setup_mcp_routes
 setup_mcp_routes(app)
 
 
+# ============================================================
+# 全局业务异常处理器
+# ============================================================
+# 将 BusinessError 子类 (NotFoundError / ConflictError / StateError / ValidationError
+# 及各模块专用异常) 转为标准 Response 结构, 避免 500 Internal Server Error。
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc: Exception):
+    """兜底异常处理器: 未预期异常统一转为 500"""
+    from fastapi.responses import JSONResponse
+    log.error(f"未处理异常: {type(exc).__name__}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": 500,
+            "message": f"服务器内部错误: {type(exc).__name__}",
+            "data": {"error_code": "INTERNAL_ERROR"},
+        },
+    )
+
+
+@app.exception_handler(BusinessError)
+async def business_error_handler(request, exc: BusinessError):
+    """统一业务异常处理器
+
+    把 BusinessError 子类转为标准 Response 结构
+    """
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": exc.status_code,
+            "message": exc.message,
+            "data": {
+                "error_code": exc.code,
+                "details": exc.details,
+            },
+        },
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
+    # PyCharm 调试模式: 默认关闭 reload，避免断点失效
+    # 需要 hot-reload 时设置环境变量 UVICORN_RELOAD=true
+    reload_flag = os.getenv("UVICORN_RELOAD", "false").lower() == "true"
     uvicorn.run(
         "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=True,
-        reload_dirs=["app"],
-        reload_excludes=["uploads/*", "reports/*", "scripts/*"],
+        reload=reload_flag,
+        reload_dirs=["app"] if reload_flag else None,
+        reload_excludes=["uploads/*", "reports/*", "scripts/*"] if reload_flag else None,
     )

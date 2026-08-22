@@ -117,14 +117,26 @@ async def three_layer_generate(
             if not task:
                 raise HTTPException(status_code=404, detail="任务不存在")
 
-            # 调用脚本生成 Agent
-            agent = AgentFactory.create("script_generation_agent")
-            result = agent.execute(
-                task_id=req.task_id,
-                case_ids=req.case_ids,
-                framework=req.framework,
-            )
-            return Response(code=200, message="生成完成", data=result)
+            # 通过 TaskDispatcher 提交脚本生成任务 (企业级 Runtime)
+            from app.runtime.enterprise import get_task_dispatcher, TaskRequest
+            dispatcher = get_task_dispatcher()
+            task_id = await dispatcher.submit(TaskRequest(
+                agent_name="script_generation_agent",
+                action="execute",
+                payload={
+                    "task_id": req.task_id,
+                    "case_ids": req.case_ids,
+                    "framework": req.framework,
+                },
+                timeout_seconds=300,
+                max_retries=1,
+            ))
+            # 同步等待结果
+            task_result = await dispatcher.wait_for_result(task_id, timeout=300)
+            if task_result.status == "success":
+                return Response(code=200, message="生成完成", data=task_result.result)
+            else:
+                raise Exception(task_result.error or "生成失败")
         finally:
             db.close()
     except HTTPException:

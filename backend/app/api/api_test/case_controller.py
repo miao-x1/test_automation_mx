@@ -173,6 +173,115 @@ async def copy_case(case_id: int, user: User = Depends(require_auth), db: Sessio
     return Response(code=200, message="复制成功", data={"id": new_case.id, "title": new_case.title, "status": new_case.status})
 
 
+# ========== 从接口生成用例 (接入 ApiDataGeneratorAgent 流程) ==========
+
+class GenerateFromEndpointRequest(PydanticModel):
+    endpoint_id: int
+    count: int = 3
+    use_llm: bool = True
+    folder_id: Optional[int] = None
+    priority: str = "medium"
+    save: bool = True  # True=保存为 ApiCase;False=仅返回建议
+
+
+@router.post("/cases/from-endpoint", summary="从接口生成用例 (数据生成→用例)")
+async def generate_cases_from_endpoint(
+    req: GenerateFromEndpointRequest,
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """一键流程: 接口 → 数据生成 → 用例建议 → 持久化
+
+    接入 ApiDataGeneratorAgent,生成 normal/abnormal/boundary/dependent 四类数据
+    每条数据 → 1 个 ApiCase,保存后返回 ID 列表
+    """
+    from app.services.api_test_data_service import ApiTestDataService
+    from app.agent.core.message_bus import MessageBus
+
+    service = ApiTestDataService()
+    result = await service.generate_for_case(
+        req.endpoint_id,
+        count=req.count,
+        use_llm=req.use_llm,
+        user_id=user.id,
+    )
+
+    suggested = result.get("suggested_cases", [])
+    endpoint = result.get("endpoint", {})
+
+    saved_ids: List[int] = []
+    if req.save:
+        for sc in suggested:
+            case = ApiCase(
+                title=sc.get("title", f"AI生成-{endpoint.get('name', '')}"),
+                case_id=None,
+                description=f"由 ApiDataGeneratorAgent 自动生成 | 类型={sc.get('data_type')} | 数据源={sc.get('source_data')}",
+                folder_id=req.folder_id,
+                priority=req.priority,
+                status="draft",
+                tags=f"ai-generated,{sc.get('data_type')}",
+                precondition=None,
+                steps=json.dumps(sc.get("steps", []), ensure_ascii=False),
+                assertions=json.dumps(sc.get("assertions", []), ensure_ascii=False) if sc.get("assertions") else None,
+                extracts=json.dumps(sc.get("extracts", []), ensure_ascii=False) if sc.get("extracts") else None,
+                method=sc.get("method"),
+                url=sc.get("url"),
+                env_override=None,
+                test_type="API",
+                source="ai",
+                user_id=user.id,
+                created_by=user.id,
+            )
+            db.add(case)
+            db.flush()
+            saved_ids.append(case.id)
+
+            # 关联已生成数据 (case_id 回写)
+            try:
+                from app.models.api_test_data import GeneratedApiData
+                data_type = sc.get("data_type")
+                # 找到对应类型的最新一条未关联数据
+                rec = db.query(GeneratedApiData).filter(
+                    GeneratedApiData.endpoint_id == req.endpoint_id,
+                    GeneratedApiData.data_type == data_type,
+                    GeneratedApiData.case_id.is_(None),
+                    GeneratedApiData.is_deleted == False,
+                ).order_by(GeneratedApiData.id.desc()).first()
+                if rec:
+                    rec.case_id = case.id
+            except Exception:
+                pass
+
+        db.commit()
+
+        # 发布 case.created 消息 (消息协议)
+        try:
+            bus = MessageBus()
+            for cid in saved_ids:
+                bus.publish(
+                    topic="case.created",
+                    source="case_controller",
+                    data={"case_id": cid, "endpoint_id": req.endpoint_id, "source": "ai"},
+                    task_id=None,
+                    status="completed",
+                )
+        except Exception:
+            pass
+
+    return Response(
+        code=200,
+        message=f"生成完成,共 {len(suggested)} 条建议用例" + (f",已保存 {len(saved_ids)} 条" if req.save else ""),
+        data={
+            "endpoint": endpoint,
+            "suggested_count": len(suggested),
+            "saved_ids": saved_ids,
+            "suggested_cases": suggested,
+            "generated_data": result.get("generated_data", {}),
+            "metadata": result.get("metadata", {}),
+        },
+    )
+
+
 # ========== 目录管理 ==========
 
 @router.post("/folders/save", summary="保存/创建目录")

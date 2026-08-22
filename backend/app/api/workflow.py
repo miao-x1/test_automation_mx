@@ -19,7 +19,7 @@ Workflow API - 事件驱动工作流管理（替代SSE流式推送）
 import json
 import time
 import asyncio
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel as PydanticModel

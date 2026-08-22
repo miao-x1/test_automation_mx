@@ -54,6 +54,9 @@ export class GlobalErrorBoundary extends React.Component<ErrorBoundaryProps, Err
 
 /**
  * 路由级错误边界 - 单页异常不影响其他页面
+ *
+ * 路由切换时自动复位：监听 location.pathname 变化，
+ * 如果边界处于错误状态则自动清除，避免一个页面报错后所有页面都显示"页面加载失败"。
  */
 export class RouteErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { hasError: false, error: null };
@@ -64,6 +67,14 @@ export class RouteErrorBoundary extends React.Component<ErrorBoundaryProps, Erro
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[RouteErrorBoundary]', error, info.componentStack);
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    // 使用 children 的变化来检测路由切换
+    // 当路由变化时，children 会更新，此时自动复位错误状态
+    if (this.state.hasError && prevProps.children !== this.props.children) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   handleRetry = () => {

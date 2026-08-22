@@ -7,7 +7,7 @@ MindmapAgent - 思维导图
 
 禁止：数据库/HTTP/文件
 """
-from typing import Any, Dict, List
+from typing import Any, Dict
 from app.services.generation.context import GenerationContext, MindmapDTO
 from app.core.logger import log
 

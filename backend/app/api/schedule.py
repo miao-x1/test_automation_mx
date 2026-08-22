@@ -5,7 +5,7 @@ CRUD + 运行历史 + 暂停/启用 + 手动触发
 """
 import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from app.db.database import SessionLocal

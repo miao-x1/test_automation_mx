@@ -8,6 +8,8 @@ import os
 import subprocess
 import tempfile
 import time as _time
+
+from app.utils.browser_launcher import get_launch_code_snippet
 from typing import Dict, Any, Optional
 from app.core.logger import log
 from app.core.config import settings
@@ -87,7 +89,7 @@ class ScriptExecutor(NewBaseAgent):
                 text=True,
                 timeout=timeout,
                 cwd=os.path.dirname(script_path),
-                env={**os.environ, "PLAYWRIGHT_BROWSERS_PATH": "0"},
+                env={**os.environ, "PLAYWRIGHT_BROWSERS_PATH": "0", "PLAYWRIGHT_CHROME_PATH": os.environ.get("PLAYWRIGHT_CHROME_PATH", ""), "PLAYWRIGHT_HEADLESS": os.environ.get("PLAYWRIGHT_HEADLESS", "True")},
             )
 
             return {
@@ -160,12 +162,16 @@ class ScriptExecutor(NewBaseAgent):
         target = config.get("target", config.get("url", "https://example.com"))
         steps = config.get("steps", [])
 
+        # 生成浏览器启动代码（8空格缩进适配 with sync_playwright 块）
+        _launch_snippet = get_launch_code_snippet(playwright_var="p")
+        _launch_lines = ["        " + line for line in _launch_snippet.split("\n")]
+
         lines = [
             "from playwright.sync_api import sync_playwright",
             "",
             f"def test_{name.replace(' ', '_').replace('-', '_')}():",
             "    with sync_playwright() as p:",
-            "        browser = p.chromium.launch()",
+            *_launch_lines,
             "        page = browser.new_page()",
             f'        page.goto("{target}")',
             "        page.wait_for_load_state('networkidle')",

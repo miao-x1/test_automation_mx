@@ -30,7 +30,7 @@ Agent 生命周期管理器
 import asyncio
 import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from datetime import datetime
 
 from app.agents.factory.config import AgentSpec

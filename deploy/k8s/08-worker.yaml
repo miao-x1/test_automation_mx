@@ -1,0 +1,87 @@
+# ============================================================
+# Agent Worker Deployment — 独立任务执行进程
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: test-automation
+  labels:
+    app: worker
+    component: task-executor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        component: task-executor
+    spec:
+      containers:
+        - name: worker
+          image: test-automation/worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: DB_HOST
+              value: "mysql"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: MILVUS_HOST
+              value: "milvus"
+            - name: NEO4J_URI
+              value: "bolt://neo4j:7687"
+            - name: WORKER_CONCURRENCY
+              value: "4"
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: reports
+              mountPath: /app/reports
+            - name: logs
+              mountPath: /app/logs
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+          # Worker 不暴露端口, 无 HTTP 健康检查
+          # 使用进程存活检查
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import redis,os; r=redis.from_url(f'redis://{os.getenv(\"REDIS_HOST\",\"redis\")}:{os.getenv(\"REDIS_PORT\",\"6379\")}/{os.getenv(\"REDIS_DB\",\"0\")}'); r.ping()"
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            failureThreshold: 3
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: backend-uploads
+        - name: reports
+          persistentVolumeClaim:
+            claimName: backend-reports
+        - name: logs
+          persistentVolumeClaim:
+            claimName: backend-logs
+      # Worker Pod 不需要 Service (无入站流量)

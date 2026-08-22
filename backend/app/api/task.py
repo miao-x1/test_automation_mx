@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from app.db.database import get_db
 from app.schemas.response import Response
-from app.schemas.task import TaskResponse, TaskListResponse
+from app.schemas.task import TaskResponse, TaskListResponse, TaskQueryParams
 from app.services.task_service import TaskService
 from app.services.task_service import TaskService as UnifiedTaskService
 from app.core.config import settings
@@ -175,6 +175,68 @@ async def get_task_list(
     )
 
 
+@router.get("/search", summary="多条件查询任务")
+async def search_tasks(
+    status: Optional[str] = None,
+    task_type: Optional[str] = None,
+    input_mode: Optional[str] = None,
+    keyword: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 20,
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """
+    多条件查询任务
+
+    支持筛选维度：
+    - status: 任务状态 (pending/processing/success/failed)
+    - task_type: 测试类型 (web/api/performance/android)
+    - input_mode: 输入模式 (image/url/requirement)
+    - keyword: 关键词搜索（模糊匹配任务名称）
+    - start_date / end_date: 创建时间范围 (YYYY-MM-DD)
+
+    示例：
+      GET /tasks/search?status=success&task_type=web&keyword=登录
+      GET /tasks/search?start_date=2026-08-01&end_date=2026-08-11
+    """
+    # Pydantic 校验查询参数
+    params = TaskQueryParams(
+        status=status,
+        task_type=task_type,
+        input_mode=input_mode,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
+        skip=skip,
+        limit=limit,
+    )
+
+    items, total = TaskService.query_tasks(
+        db=db,
+        user_id=user.id,
+        status=params.status,
+        task_type=params.task_type,
+        input_mode=params.input_mode,
+        keyword=params.keyword,
+        start_date=params.start_date,
+        end_date=params.end_date,
+        skip=params.skip,
+        limit=params.limit,
+    )
+
+    return Response(
+        code=200,
+        message="success",
+        data=TaskListResponse(
+            total=total,
+            items=[TaskResponse.model_validate(t) for t in items]
+        )
+    )
+
+
 @router.delete("/{task_id}", summary="删除任务")
 async def delete_task(
     task_id: int,
@@ -317,17 +379,24 @@ async def download_script(
 async def analyze_task(
     task_id: int,
     user: User = Depends(require_auth),
-    db: Session = Depends(get_db)
 ):
     """
     启动统一分析流程，通过SSE实时推送进度
     根据任务的input_mode自动选择分析路径
+
+    注意: 不使用 Depends(get_db)，因为 SSE 流期间 DB 连接不会释放，
+    会导致连接池耗尽。改为手动管理 session，校验后立即关闭。
     """
-    task = TaskService.get_task(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    if task.user_id is not None and task.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问")
+    from app.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        task = TaskService.get_task(db, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if task.user_id is not None and task.user_id != user.id:
+            raise HTTPException(status_code=403, detail="无权访问")
+    finally:
+        db.close()
 
     return EventSourceResponse(
         UnifiedTaskService.run_unified_analysis(task_id)

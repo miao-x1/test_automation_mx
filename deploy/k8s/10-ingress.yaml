@@ -1,0 +1,69 @@
+# ============================================================
+# Ingress — 入口路由 (需要 ingress-nginx 或 traefik)
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-automation-ingress
+  namespace: test-automation
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/websocket-services: "backend"
+    # HTTPS 重定向 (生产环境启用)
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - test-automation.example.com
+      secretName: test-automation-tls
+  rules:
+    - host: test-automation.example.com
+      http:
+        paths:
+          # 前端静态资源
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+          # API 反向代理
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          # WebSocket
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          # SSE 流式推送 (走 /api 路径, nginx 已关闭 buffering)
+          # MCP 端点 (走 /api/mcp 路径)
+          # 文档 (走 /docs 和 /redoc)
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /redoc
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000

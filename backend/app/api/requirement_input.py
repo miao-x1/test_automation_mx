@@ -15,13 +15,14 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 # 上传文件存储目录
-UPLOAD_DIR = os.path.join(os.getcwd(), "uploads", "requirement_input")
+UPLOAD_DIR = os.path.join(settings.UPLOAD_DIR, "requirement_input")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 文件类型分类

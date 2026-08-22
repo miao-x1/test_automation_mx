@@ -61,15 +61,23 @@ async def run_crawl(
     task_id: int,
     url: str,
     user: User = Depends(require_auth),
-    db: Session = Depends(get_db)
 ):
-    """执行页面抓取，通过SSE实时推送进度"""
+    """执行页面抓取，通过SSE实时推送进度
+
+    注意: 不使用 Depends(get_db)，因为 SSE 流期间 DB 连接不会释放，
+    会导致连接池耗尽。改为手动管理 session，校验后立即关闭。
+    """
+    from app.db.database import SessionLocal
     from app.models.task import Task
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    if task.user_id is not None and task.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问")
+    db = SessionLocal()
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if task.user_id is not None and task.user_id != user.id:
+            raise HTTPException(status_code=403, detail="无权访问")
+    finally:
+        db.close()
 
     return EventSourceResponse(
         PageCrawlerService.run_crawl(task_id, url)

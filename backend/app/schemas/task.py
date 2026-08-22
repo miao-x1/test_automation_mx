@@ -113,6 +113,18 @@ class TaskResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskQueryParams(BaseModel):
+    """任务查询参数（多条件筛选）"""
+    status: Optional[str] = Field(default=None, description="按状态筛选: pending/processing/success/failed")
+    task_type: Optional[str] = Field(default=None, description="按类型筛选: web/api/performance/android")
+    input_mode: Optional[str] = Field(default=None, description="按输入模式筛选: image/url/requirement")
+    keyword: Optional[str] = Field(default=None, description="关键词搜索（匹配任务名称）")
+    start_date: Optional[str] = Field(default=None, description="创建时间起始(YYYY-MM-DD)")
+    end_date: Optional[str] = Field(default=None, description="创建时间截止(YYYY-MM-DD)")
+    skip: int = Field(default=0, ge=0, description="跳过条数")
+    limit: int = Field(default=20, ge=1, le=100, description="每页条数")
+
+
 class TaskListResponse(BaseModel):
     """任务列表响应"""
     total: int = Field(..., description="总数")

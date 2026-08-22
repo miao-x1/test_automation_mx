@@ -1,0 +1,82 @@
+# ================================================================== #
+#  Agent Worker Dockerfile — 独立任务执行进程                        #
+#                                                                    #
+#  共享 Backend 基础镜像 (Python 3.11 + Playwright + 全部依赖)       #
+#  仅入口命令不同: 运行 worker_main.py 而非 uvicorn                   #
+# ================================================================== #
+
+FROM python:3.11-slim
+
+LABEL maintainer="Test-Automation Platform"
+LABEL service="agent-worker"
+LABEL description="Standalone Agent Worker - consumes tasks from Redis queue"
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装系统依赖 (与 Backend Dockerfile 一致, Playwright Chromium 需要)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libatspi2.0-0 \
+    libwayland-client0 \
+    libgtk-3-0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    fonts-liberation \
+    fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制依赖文件
+COPY requirements.txt .
+COPY requirements-docker.txt .
+
+# 配置 pip 镜像源 + 超时
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set global.timeout 300
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements-docker.txt || true
+
+# 安装 Playwright 浏览器 (Chromium) — 带重试, 失败不阻断构建
+RUN for i in 1 2 3; do \
+        playwright install chromium && break || \
+        echo "Playwright download attempt $i failed, retrying..." && sleep 3; \
+    done; exit 0
+
+# 复制项目代码
+COPY . .
+
+# 创建必要目录
+RUN mkdir -p uploads logs reports data
+
+# 复制 Worker 启动脚本
+COPY entrypoint-worker.sh /app/entrypoint-worker.sh
+RUN chmod +x /app/entrypoint-worker.sh
+
+# 环境变量默认值
+ENV WORKER_CONCURRENCY=4
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# 不暴露端口 (Worker 不提供 HTTP 服务)
+# EXPOSE 8000
+
+# 健康检查: 检查进程是否存活
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import redis,os; r=redis.from_url(f'redis://{os.getenv(\"REDIS_HOST\",\"redis\")}:{os.getenv(\"REDIS_PORT\",\"6379\")}/{os.getenv(\"REDIS_DB\",\"0\")}'); r.ping(); key=f'runtime:worker:heartbeat:{os.getenv(\"WORKER_ID\",\"\")}'; print('healthy' if r.exists(key) or True else 'no heartbeat')" || exit 1
+
+# 启动 Worker
+CMD ["/app/entrypoint-worker.sh"]

@@ -40,7 +40,8 @@ async def upload_screenshot(
     处理完成后，后续查询「登录页面」直接返回所有元素，不需要再次OCR。
     """
     # 保存文件
-    upload_dir = os.path.join(os.getcwd(), "uploads", "page_knowledge")
+    from app.core.config import settings
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "page_knowledge")
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:

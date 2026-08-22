@@ -23,7 +23,7 @@ import os
 import time
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from autogen_core import message_handler, MessageContext, DefaultTopicId, default_subscription
 
@@ -47,7 +47,8 @@ class ReportAgent(BaseRoutedAgent):
             display_name="ReportAgent",
             capabilities=["report_generate", "report_export"],
         )
-        self._report_dir = os.path.join(os.getcwd(), "reports")
+        from app.core.config import settings
+        self._report_dir = settings.REPORT_DIR
         # 注册管道 action
         self.register_action("generate", self._pipeline_generate)
 

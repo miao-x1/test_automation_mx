@@ -705,6 +705,68 @@ DEFAULT_AGENT_SPECS: List[AgentSpec] = [
     ),
 
     # ================================================================ #
+    #  测试资产中心 Agents                                                 #
+    #  1. AssetSearchAgent       - 三源融合搜索已有资产                    #
+    #  2. AssetReuseAgent        - LLM 判断资产可复用性                   #
+    #  3. AssetOptimizationAgent - LLM 生成优化测试方案                   #
+    #                                                                  #
+    #  链式编排: Search → Reuse → Optimization                         #
+    #  禁止 Agent 直接操作数据库, 统一通过 AssetSearchService          #
+    # ================================================================ #
+
+    AgentSpec(
+        name="asset_search_agent",
+        display_name="测试资产搜索Agent",
+        description="三源融合搜索: MySQL关键词 + Milvus向量 + Neo4j关系, 返回TopK资产",
+        agent_type="tool",
+        module_path="app.agents.flows.asset_search_agent",
+        class_name="AssetSearchAgent",
+        model=None,
+        system_prompt="",
+        tools=["mysql_client", "milvus_client", "neo4j_client"],
+        capabilities=["asset_search", "asset_retrieve"],
+        enabled=True,
+    ),
+
+    AgentSpec(
+        name="asset_reuse_agent",
+        display_name="资产复用判断Agent",
+        description="基于搜索结果用LLM评估资产复用性, 计算reuse_score, 输出复用决策",
+        agent_type="llm",
+        module_path="app.agents.flows.asset_reuse_agent",
+        class_name="AssetReuseAgent",
+        model=ModelConfig(
+            provider="dashscope",
+            model_name="qwen-plus",
+            temperature=0.3,
+            max_tokens=2048,
+        ),
+        system_prompt="",
+        tools=[],
+        capabilities=["asset_reuse", "asset_evaluate"],
+        enabled=True,
+    ),
+
+    AgentSpec(
+        name="asset_optimization_agent",
+        display_name="资产优化Agent",
+        description="基于复用决策用LLM生成优化测试方案: 复用清单+补充清单+执行顺序",
+        agent_type="llm",
+        module_path="app.agents.flows.asset_optimization_agent",
+        class_name="AssetOptimizationAgent",
+        model=ModelConfig(
+            provider="dashscope",
+            model_name="qwen-plus",
+            temperature=0.4,
+            max_tokens=4096,
+        ),
+        system_prompt="",
+        tools=[],
+        capabilities=["asset_optimization", "plan_generation"],
+        enabled=True,
+    ),
+
+    # ================================================================ #
     #  PageKnowledgeAgent                                                 #
     #  页面知识Agent：截图→OCR→元素→关系→三库存储                      #
     #  CaseAgent 可直接查询「登录页面」返回所有元素，不需要再次OCR       #
@@ -839,6 +901,46 @@ DEFAULT_AGENT_SPECS: List[AgentSpec] = [
         enabled=True,
     ),
 
+    AgentSpec(
+        name="quality_analysis_agent",
+        display_name="质量分析Agent",
+        description="基于LLM分析测试资产/执行记录/缺陷数据, 生成覆盖/风险/重复/缺陷趋势四维度质量报告",
+        agent_type="llm",
+        module_path="app.agents.flows.quality_analysis_agent",
+        class_name="QualityAnalysisAgent",
+        model=ModelConfig(
+            provider="dashscope",
+            model_name="qwen-plus",
+            temperature=0.3,
+            max_tokens=2048,
+        ),
+        system_prompt="",
+        tools=[],
+        capabilities=["quality_analysis", "coverage_analysis", "risk_analysis",
+                      "duplication_analysis", "defect_trend_analysis"],
+        enabled=True,
+    ),
+
+    AgentSpec(
+        name="feedback_learning_agent",
+        display_name="反馈学习Agent",
+        description="收集成功/失败/人工修改案例, 通过LLM分析生成RAG/Prompt/策略优化建议",
+        agent_type="llm",
+        module_path="app.agents.flows.feedback_learning_agent",
+        class_name="FeedbackLearningAgent",
+        model=ModelConfig(
+            provider="dashscope",
+            model_name="qwen-plus",
+            temperature=0.3,
+            max_tokens=2048,
+        ),
+        system_prompt="",
+        tools=[],
+        capabilities=["feedback_learning", "case_collection",
+                      "rag_optimization", "prompt_optimization", "strategy_optimization"],
+        enabled=True,
+    ),
+
     # ================================================================ #
     #  Testcase Agents - 测试用例生成流程                                #
     # ================================================================ #
@@ -910,6 +1012,134 @@ DEFAULT_AGENT_SPECS: List[AgentSpec] = [
         system_prompt="",
         tools=["database"],
         capabilities=["knowledge_update"],
+        enabled=True,
+    ),
+
+    # ================================================================ #
+    #  接口自动化测试数据生成 Agent                                       #
+    #  ApiDataGeneratorAgent - 四源融合 (LLM+Faker+规则+模板)           #
+    #  支持 normal/abnormal/boundary/dependent 四类数据                  #
+    # ================================================================ #
+
+    AgentSpec(
+        name="api_data_generator_agent",
+        display_name="接口测试数据生成Agent",
+        description="根据接口Schema+依赖关系智能生成4类测试数据(正常/异常/边界/关联),融合LLM+Faker+规则+模板",
+        agent_type="llm",
+        module_path="app.agents.flows.api_data_generator_agent",
+        class_name="ApiDataGeneratorAgent",
+        model=ModelConfig(
+            provider="dashscope",
+            model_name="qwen-plus",
+            temperature=0.3,
+            max_tokens=4096,
+        ),
+        system_prompt=(
+            "你是接口测试数据生成专家。根据字段Schema生成满足约束的测试数据。"
+            "优先使用规则和Faker,仅当字段语义复杂时调用LLM。"
+        ),
+        tools=["faker", "schema_parser", "mysql_client"],
+        capabilities=["data_generation", "schema_analysis", "test_data"],
+        enabled=True,
+    ),
+
+    # ================================================================ #
+    #  AI 接口调试 Agent                                                  #
+    # ================================================================ #
+    AgentSpec(
+        name="api_debug_agent",
+        display_name="接口调试分析Agent",
+        description="分析 HTTP 接口执行结果,输出问题原因/解决方案/修复建议,支持 LLM + 规则引擎双模式",
+        agent_type="llm",
+        module_path="app.agents.flows.api_debug_agent",
+        class_name="ApiDebugAgent",
+        model=ModelConfig(provider="dashscope", model_name="qwen-plus", temperature=0.3, max_tokens=2048),
+        system_prompt=(
+            "你是接口测试调试专家。根据 HTTP 接口执行结果,分析失败原因并给出修复建议。"
+            "输出 JSON 格式,包含 problem_cause/solution/fix_suggestion/confidence/category。"
+        ),
+        tools=["http_analyzer", "rule_engine", "mysql_client"],
+        capabilities=["debug", "failure_analysis", "llm_reasoning"],
+        enabled=True,
+    ),
+
+    # ================================================================ #
+    #  性能测试 Agent (domains/performance)                              #
+    # ================================================================ #
+
+    AgentSpec(
+        name="performance_plan_agent",
+        display_name="性能方案Agent",
+        description="根据接口信息和业务量生成性能测试方案 (并发/持续时间/TPS目标/预热)",
+        agent_type="llm",
+        module_path="app.domains.performance.agents",
+        class_name="PerformancePlanAgent",
+        model=ModelConfig(provider="dashscope", model_name="qwen-plus", temperature=0.3, max_tokens=2048),
+        system_prompt="",
+        tools=[],
+        capabilities=["performance_planning", "concurrency_estimation"],
+        enabled=True,
+    ),
+
+    AgentSpec(
+        name="performance_script_agent",
+        display_name="性能脚本Agent",
+        description="根据测试方案生成 Locust Python 脚本或 JMeter XML 配置",
+        agent_type="llm",
+        module_path="app.domains.performance.agents",
+        class_name="PerformanceScriptAgent",
+        model=ModelConfig(provider="dashscope", model_name="qwen-coder-plus", temperature=0.2, max_tokens=4096),
+        system_prompt="",
+        tools=[],
+        capabilities=["script_generation", "locust", "jmeter"],
+        enabled=True,
+    ),
+
+    AgentSpec(
+        name="performance_analysis_agent",
+        display_name="性能分析Agent",
+        description="基于实时指标(TPS/RT/CPU/Memory) + LLM 分析性能瓶颈,不使用RAG",
+        agent_type="llm",
+        module_path="app.domains.performance.agents",
+        class_name="PerformanceAnalysisAgent",
+        model=ModelConfig(provider="dashscope", model_name="qwen-plus", temperature=0.3, max_tokens=4096),
+        system_prompt="",
+        tools=[],
+        capabilities=["performance_analysis", "bottleneck_detection"],
+        enabled=True,
+    ),
+
+    AgentSpec(
+        name="performance_diagnostic_agent",
+        display_name="性能诊断Agent",
+        description="解析jstack/日志/监控数据, 定位线程阻塞/死锁/CPU热点等性能问题根因",
+        agent_type="llm",
+        module_path="app.domains.performance.agents",
+        class_name="PerformanceDiagnosticAgent",
+        model=ModelConfig(provider="dashscope", model_name="qwen-plus", temperature=0.3, max_tokens=4096),
+        system_prompt="",
+        tools=[],
+        capabilities=["performance_diagnosis", "jstack_analysis", "deadlock_detection",
+                     "thread_analysis", "cpu_hotspot", "log_analysis"],
+        enabled=True,
+    ),
+
+    # ================================================================ #
+    #  代码执行 Agent (domains/code)                                     #
+    # ================================================================ #
+
+    AgentSpec(
+        name="code_agent",
+        display_name="代码执行Agent",
+        description="LLM生成代码并安全执行 (分析Excel/处理测试数据/生成统计结果), 代码在Docker沙箱中隔离执行",
+        agent_type="llm",
+        module_path="app.domains.code.agent",
+        class_name="CodeAgent",
+        model=ModelConfig(provider="dashscope", model_name="qwen-coder-plus", temperature=0.2, max_tokens=4096),
+        system_prompt="",
+        tools=["sandbox_executor", "security_checker"],
+        capabilities=["code_generation", "code_execution", "data_analysis",
+                     "excel_analysis", "data_processing", "statistics"],
         enabled=True,
     ),
 ]

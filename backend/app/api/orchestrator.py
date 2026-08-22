@@ -431,8 +431,9 @@ async def unified_upload(
     """
     import os
     from pathlib import Path
+    from app.core.config import settings
 
-    upload_dir = Path("uploads/unified")
+    upload_dir = Path(settings.UPLOAD_DIR) / "unified"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = upload_dir / file.filename

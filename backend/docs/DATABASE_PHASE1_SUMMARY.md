@@ -152,7 +152,7 @@ Task (1) ←→ (1) Script          一对一，级联删除
 ```bash
 # 默认配置，无需修改
 USE_SQLITE=True
-SQLITE_PATH=data/ui_automation.db
+SQLITE_PATH=data/test_automation.db
 
 # 启动即自动创建表
 uvicorn app.main:app --reload
@@ -166,7 +166,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_password
-DB_NAME=ui_automation
+DB_NAME=test_automation
 
 # 使用Alembic迁移
 cd backend
@@ -233,7 +233,7 @@ layout_json: TEXT        # 布局信息
 ```
 INFO: Uvicorn running on http://0.0.0.0:8000
 数据库表初始化完成
-✅ UI-Automation v1.0.0 启动成功
+✅ Test-Automation v1.0.0 启动成功
 ```
 
 ### 健康检查 ✅

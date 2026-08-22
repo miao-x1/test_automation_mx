@@ -81,6 +81,10 @@ class WebProvider(TestingProvider):
         if not isinstance(config, WebProviderConfig):
             return GenerateResult(success=False, message="配置类型错误")
 
+        from app.utils.browser_launcher import get_launch_code_snippet
+
+        _launch_code = get_launch_code_snippet(playwright_var="p")
+
         template = f'''"""
 Web UI 测试脚本 - 自动生成
 URL: {config.url}
@@ -90,7 +94,7 @@ from playwright.sync_api import sync_playwright
 
 def run_test():
     with sync_playwright() as p:
-        browser = p.{config.browser}.launch(headless={config.headless})
+        {_launch_code}
         page = browser.new_page(viewport={{"width": 1280, "height": 720}})
         page.set_default_timeout({config.timeout})
 

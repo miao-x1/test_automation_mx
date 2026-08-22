@@ -72,7 +72,12 @@ class PlaywrightExecutor(BaseExecutor):
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                env={**os.environ, "PLAYWRIGHT_BROWSERS_PATH": "0"},
+                env={
+                    **os.environ,
+                    "PLAYWRIGHT_BROWSERS_PATH": "0",
+                    "PLAYWRIGHT_CHROME_PATH": os.environ.get("PLAYWRIGHT_CHROME_PATH", ""),
+                    "PLAYWRIGHT_HEADLESS": os.environ.get("PLAYWRIGHT_HEADLESS", "True"),
+                },
             )
             duration = int(_time.time() - start)
             return {

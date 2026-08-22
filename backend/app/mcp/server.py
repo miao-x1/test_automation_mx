@@ -8,20 +8,25 @@ MCP Server - Model Context Protocol 适配层
   - sse:             /mcp/sse，Server-Sent Events（MCP 2024-11-05 协议）
   - streamable-http:  /mcp/，Streamable HTTP（MCP 2025-03-26 协议）
 
-暴露9个工具（4新 + 5旧）：
+暴露12个工具（7新 + 5旧）：
 
-  新增4个核心工具（tools/ 目录）：
-    1. analyze_page       — 页面分析（URL抓取/图片识别）
-    2. generate_testcase  — 生成测试用例（需求→用例）
-    3. generate_script    — 生成测试脚本（需求→脚本，支持类型自动识别）
-    4. execute_test       — 执行测试（任务ID/脚本内容/资产ID）
+  核心测试工具（tools/ 目录，4个）：
+    1. analyze_page          — 页面分析（URL抓取/图片识别）
+    2. generate_testcase     — 生成测试用例（需求→用例）
+    3. generate_script       — 生成测试脚本（需求→脚本，支持类型自动识别）
+    4. execute_test          — 执行测试（任务ID/脚本内容/资产ID）
+
+  浏览器性能监控工具（tools/ 目录，3个）：
+    5. get_page_metrics      — 页面性能指标采集 (加载时间/DOM/Web Vitals)
+    6. get_network_metrics   — 网络性能指标采集 (请求/资源大小/分组统计)
+    7. get_performance_report — 综合性能报告 + AI分析
 
   保留5个旧工具（兼容已有客户端）：
-    5. create_task        — 创建测试任务
-    6. execute_task       — 执行测试任务（旧版）
-    7. query_task         — 查询任务状态
-    8. query_graph        — 查询知识图谱
-    9. generate_script    — 生成测试脚本（旧版，已被新工具替代但保留兼容）
+    8. create_task        — 创建测试任务
+    9. execute_task       — 执行测试任务（旧版）
+   10. query_task         — 查询任务状态
+   11. query_graph        — 查询知识图谱
+   12. generate_script    — 生成测试脚本（旧版，已被新工具替代但保留兼容）
 
 架构：
   tools/         — 4个新工具模块（每个导出 TOOL_NAME/SCHEMA/DESCRIPTION/execute）
@@ -251,10 +256,38 @@ def _generate_script(requirement: str, additional_info: str = "", script_format:
 # ==================== MCP Server 定义 ====================
 
 def create_mcp_server() -> Server:
-    """创建MCP Server实例"""
-    server = Server("ui-automation-mcp")
+    """创建MCP Server实例（向后兼容不同版本的 mcp 包）"""
+    # 兼容性保护：如果 mcp.Server 不存在预期的装饰器接口（list_tools / call_tool），
+    # 则退化为一个 DummyServer，避免在应用启动时因 MCP API 不兼容导致整个服务启动失败。
+    try:
+        server = Server("test-automation-mcp")
+    except Exception as e:
+        log.warning(f"MCP Server 初始化失败，使用 DummyServer 退化启动: {e}")
 
-    # 导入新工具模块
+        class DummyServer:
+            def create_initialization_options(self):
+                return {}
+
+            async def run(self, read_stream, write_stream, init_options):
+                # no-op implementation for compatibility
+                return
+
+        return DummyServer()
+
+    # 如果 server 缺少预期的装饰器接口，退化为 DummyServer
+    if not hasattr(server, "list_tools") or not hasattr(server, "call_tool"):
+        log.warning("MCP Server 版本不支持 list_tools/call_tool 装饰器，使用 DummyServer 退化")
+
+        class DummyServer:
+            def create_initialization_options(self):
+                return {}
+
+            async def run(self, read_stream, write_stream, init_options):
+                return
+
+        return DummyServer()
+
+    # 如果能正常创建 server，则按原逻辑注册工具
     from app.mcp.tools import ALL_TOOLS
 
     @server.list_tools()

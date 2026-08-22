@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.core.logger import log
 
 # 密码加密上下文
@@ -26,7 +26,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 # JWT 配置
-SECRET_KEY = getattr(settings, 'SECRET_KEY', None) or "ui-automation-secret-key-change-in-production"
+SECRET_KEY = getattr(settings, 'SECRET_KEY', None) or "test-automation-secret-key-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24小时
 REFRESH_TOKEN_EXPIRE_DAYS = 7
@@ -172,5 +172,43 @@ def require_auth(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="未登录或登录已过期",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def require_admin(
+    user: Optional[User] = Depends(get_current_user),
+) -> User:
+    """
+    管理员权限依赖注入
+
+    必须登录且拥有管理员权限才能访问,否则返回 403。
+    判定规则(满足任一即可):
+    1. 用户名是 admin
+    2. role 字段值为 "admin"
+    3. role 字段值为 UserRole.ADMIN 枚举
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未登录或登录已过期",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 多种管理员判定方式
+    is_admin = False
+    if hasattr(user, "username") and user.username == "admin":
+        is_admin = True
+    elif hasattr(user, "role"):
+        role_val = user.role
+        if isinstance(role_val, str) and role_val.lower() == "admin":
+            is_admin = True
+        elif role_val == UserRole.ADMIN:
+            is_admin = True
+
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
         )
     return user

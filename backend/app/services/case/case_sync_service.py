@@ -12,7 +12,7 @@ CaseSyncService - 用例同步服务
 """
 import json
 import hashlib
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from app.core.logger import log
 from app.db.database import SessionLocal
 from app.models.case_content import CaseContent

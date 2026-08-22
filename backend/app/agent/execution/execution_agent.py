@@ -13,6 +13,8 @@ ExecutionAgent - 执行Playwright脚本
 """
 import os
 import sys
+
+from app.utils.browser_launcher import get_launch_code_snippet
 import json
 import time
 import tempfile
@@ -82,7 +84,7 @@ class ExecutionAgent(NewBaseAgent):
 
         # 确保目录存在（使用系统临时目录，避免WatchFiles误触发重启）
         import tempfile
-        reports_dir = os.path.join(tempfile.gettempdir(), "ui_automation_reports")
+        reports_dir = os.path.join(tempfile.gettempdir(), "test_automation_reports")
         screenshots_dir = os.path.join(reports_dir, "screenshots")
         os.makedirs(screenshots_dir, exist_ok=True)
 
@@ -93,7 +95,7 @@ class ExecutionAgent(NewBaseAgent):
 
         # 保存临时脚本文件（使用系统临时目录，避免WatchFiles误触发重启）
         import tempfile
-        script_dir = os.path.join(tempfile.gettempdir(), "ui_automation_scripts")
+        script_dir = os.path.join(tempfile.gettempdir(), "test_automation_scripts")
         os.makedirs(script_dir, exist_ok=True)
         script_path = os.path.join(script_dir, f"task_{task_id}_exec_{execution_id}.py")
 
@@ -115,6 +117,8 @@ class ExecutionAgent(NewBaseAgent):
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
             env["PLAYWRIGHT_BROWSERS_PATH"] = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+            env["PLAYWRIGHT_CHROME_PATH"] = os.environ.get("PLAYWRIGHT_CHROME_PATH", "")
+            env["PLAYWRIGHT_HEADLESS"] = os.environ.get("PLAYWRIGHT_HEADLESS", "True")
 
             proc = subprocess.Popen(
                 [sys.executable, "-u", script_path],
@@ -244,10 +248,7 @@ from playwright.sync_api import sync_playwright
 _log("STEP", "初始化Playwright...")
 
 pw = sync_playwright().start()
-browser = pw.chromium.launch(
-    headless=True,
-    args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
-)
+{get_launch_code_snippet()}
 context = browser.new_context(
     viewport={{"width": 1920, "height": 1080}},
     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -322,7 +323,7 @@ sys.exit(1 if _failed > 0 else 0)
     ) -> str:
         """生成HTML测试报告"""
         import tempfile
-        reports_dir = os.path.join(tempfile.gettempdir(), "ui_automation_reports")
+        reports_dir = os.path.join(tempfile.gettempdir(), "test_automation_reports")
         os.makedirs(reports_dir, exist_ok=True)
         report_path = os.path.join(reports_dir, f"report_{execution_id}.html")
 

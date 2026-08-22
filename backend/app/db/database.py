@@ -3,7 +3,7 @@
 """
 from pathlib import Path
 from typing import AsyncGenerator
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from app.core.config import settings
@@ -56,12 +56,29 @@ def get_db() -> Session:
 def init_db():
     """初始化数据库"""
     try:
-        # 创建所有表
+        # 创建所有表（Alembic 已迁移，此处仅作安全兜底）
         Base.metadata.create_all(bind=sync_engine)
+        # 检查是否存在旧的 schema 差异（例如缺失的列），尝试修复常见缺失列
+        try:
+            inspector = inspect(sync_engine)
+            # 如果 script 表存在但缺少 script_source 列，则补齐该列（避免运行时大量 SQL 异常）
+            if 'script' in inspector.get_table_names():
+                cols = [c['name'] for c in inspector.get_columns('script')]
+                if 'script_source' not in cols:
+                    try:
+                        with sync_engine.connect() as conn:
+                            conn.execute(text("ALTER TABLE script ADD COLUMN script_source VARCHAR(20) NOT NULL DEFAULT 'generated'"))
+                            log.info("数据库: 为 'script' 表添加缺失列 'script_source'")
+                    except Exception as e:
+                        log.warning(f"尝试添加 script_source 列失败: {e}")
+        except Exception:
+            # inspector 可能在部分 DB 后端不可用，忽略并继续
+            log.debug("数据库结构检查失败，跳过列修复", exc_info=True)
+
         log.info("数据库表初始化完成")
     except Exception as e:
-        log.error(f"数据库初始化失败: {e}")
-        raise
+        # 不阻断启动 — Alembic 已处理表结构
+        log.warning(f"数据库 create_all 跳过（Alembic 已迁移）: {e}")
 
 
 def close_db():

@@ -59,7 +59,7 @@ def upgrade() -> None:
         sa.Column('scenario', sa.String(length=500), nullable=True),
         sa.Column('expected_behavior', sa.Text(), nullable=True),
         sa.Column('case_count', sa.Integer(), nullable=False, server_default='0'),
-        sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default='0'),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('idx_tcp_req', 'test_case_point', ['requirement_id'])
@@ -83,7 +83,7 @@ def upgrade() -> None:
         sa.Column('status', sa.String(length=20), nullable=False, server_default='draft'),
         sa.Column('rag_references', sa.Text(), nullable=True),
         sa.Column('version', sa.Integer(), nullable=False, server_default='1'),
-        sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, server_default='0'),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('idx_tc_task', 'test_case', ['task_id'])

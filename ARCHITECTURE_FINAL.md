@@ -1,4 +1,4 @@
-# UI-Automation 架构冻结文档
+# Test-Automation 架构冻结文档
 
 > 版本: 1.0.0  
 > 日期: 2026-07-13  

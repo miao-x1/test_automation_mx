@@ -29,6 +29,8 @@ import {
   BookOutlined,
   DatabaseOutlined,
   CodeOutlined,
+  ApiOutlined,
+  MonitorOutlined,
 } from '@ant-design/icons';
 
 // 认证页面
@@ -69,6 +71,27 @@ import AgentMonitorPage from './pages/agent-monitor/AgentMonitorPage';
 import SessionCenterV2 from './pages/session/SessionCenterV2';
 import TaskDetail from './pages/TaskDetail';
 
+// ===== API 接口管理 (新模块) =====
+import EndpointListPage from './pages/api-endpoint/EndpointListPage';
+import EndpointDetailPage from './pages/api-endpoint/EndpointDetailPage';
+import EndpointEditPage from './pages/api-endpoint/EndpointEditPage';
+
+// ===== 测试资产中心 (新模块) =====
+import AssetCenterListPage from './pages/asset-center/AssetCenterListPage';
+import AssetCenterDetailPage from './pages/asset-center/AssetCenterDetailPage';
+import AssetCenterEditPage from './pages/asset-center/AssetCenterEditPage';
+import AssetCenterAnalyzePage from './pages/asset-center/AssetCenterAnalyzePage';
+
+// ===== AI 接口调试 (新模块 - Postman + AI 分析) =====
+import ApiDebugPage from './pages/api-debug/ApiDebugPage';
+
+// ===== 企业级 Agent Runtime 监控 (新模块) =====
+import RuntimeMonitorPage from './pages/runtime-monitor/RuntimeMonitorPage';
+
+// ===== 性能测试 (新模块) =====
+import PerformanceListPage from './pages/performance/PerformanceListPage';
+import PerformanceDetailPage from './pages/performance/PerformanceDetailPage';
+
 // 认证
 import { isAuthenticated, getStoredUser, logout, UserInfo } from './services/auth';
 
@@ -103,6 +126,9 @@ const menuItems: MenuItem[] = [
     icon: <DatabaseOutlined />,
     children: [
       { key: '/asset', label: '用例资产', icon: <FolderOutlined /> },
+      { key: '/asset/center', label: '资产中心', icon: <DatabaseOutlined /> },
+      { key: '/asset/center/analyze', label: 'AI 分析需求', icon: <RobotOutlined /> },
+      { key: '/asset/endpoints', label: '接口管理', icon: <ApiOutlined /> },
       { key: '/asset/pages', label: '页面管理', icon: <GlobalOutlined /> },
       { key: '/asset/scripts', label: '脚本仓库', icon: <CodeOutlined /> },
     ],
@@ -116,6 +142,8 @@ const menuItems: MenuItem[] = [
     children: [
       { key: '/execution', label: '执行列表', icon: <PlayCircleOutlined /> },
       { key: '/execution/schedule', label: '定时任务', icon: <ClockCircleOutlined /> },
+      { key: '/execution/debug', label: 'AI 接口调试', icon: <RobotOutlined /> },
+      { key: '/performance', label: '性能测试', icon: <ThunderboltOutlined /> },
     ],
   },
 
@@ -138,6 +166,7 @@ const menuItems: MenuItem[] = [
       { key: '/system/datasources', label: '数据源', icon: <DatabaseOutlined /> },
       { key: '/system/settings', label: '系统设置', icon: <SettingOutlined /> },
       { type: 'divider' },
+      { key: '/system/runtime', label: 'Runtime 监控', icon: <MonitorOutlined /> },
       { key: '/system/ai', label: 'AI 能力', icon: <RobotOutlined /> },
     ],
   },
@@ -156,14 +185,21 @@ function getSelectedKeys(pathname: string): string[] {
   if (pathname.startsWith('/task')) return ['/task'];
 
   // 测试资产
+  if (pathname.startsWith('/asset/center/analyze')) return ['/asset/center/analyze'];
+  if (pathname.startsWith('/asset/center')) return ['/asset/center'];
+  if (pathname.startsWith('/asset/endpoints')) return ['/asset/endpoints'];
   if (pathname.startsWith('/asset/pages')) return ['/asset/pages'];
   if (pathname.startsWith('/asset/scripts')) return ['/asset/scripts'];
   if (pathname.startsWith('/asset')) return ['/asset'];
 
   // 测试执行
+  if (pathname.startsWith('/execution/debug')) return ['/execution/debug'];
   if (pathname.startsWith('/execution/schedule')) return ['/execution/schedule'];
   if (pathname.startsWith('/execution/')) return ['/execution'];
   if (pathname.startsWith('/execution')) return ['/execution'];
+
+  // 性能测试
+  if (pathname.startsWith('/performance')) return ['/performance'];
 
   // 测试报告
   if (pathname.startsWith('/report')) return ['/report'];
@@ -172,6 +208,7 @@ function getSelectedKeys(pathname: string): string[] {
   if (pathname.startsWith('/knowledge')) return ['/knowledge'];
 
   // 系统管理
+  if (pathname.startsWith('/system/runtime')) return ['/system/runtime'];
   if (pathname.startsWith('/system/ai')) return ['/system/ai'];
   if (pathname.startsWith('/system/users')) return ['/system/users'];
   if (pathname.startsWith('/system/roles')) return ['/system/roles'];
@@ -264,6 +301,15 @@ function MainLayout() {
 
               {/* ===== 3. 测试资产 ===== */}
               <Route path="/asset" element={<AssetListPage />} />
+              <Route path="/asset/center" element={<AssetCenterListPage />} />
+              <Route path="/asset/center/new" element={<AssetCenterEditPage />} />
+              <Route path="/asset/center/analyze" element={<AssetCenterAnalyzePage />} />
+              <Route path="/asset/center/:id" element={<AssetCenterDetailPage />} />
+              <Route path="/asset/center/:id/edit" element={<AssetCenterEditPage />} />
+              <Route path="/asset/endpoints" element={<EndpointListPage />} />
+              <Route path="/asset/endpoints/new" element={<EndpointEditPage />} />
+              <Route path="/asset/endpoints/:id" element={<EndpointDetailPage />} />
+              <Route path="/asset/endpoints/:id/edit" element={<EndpointEditPage />} />
               <Route path="/asset/generate" element={<TestDesignPage />} />
               <Route path="/asset/draft" element={<TestDesignPage />} />
               <Route path="/asset/review" element={<TestDesignPage />} />
@@ -280,6 +326,11 @@ function MainLayout() {
               <Route path="/execution/schedule" element={<WebSchedule />} />
               <Route path="/execution/schedule/history" element={<WebScheduleHistory />} />
               <Route path="/execution/task/:id" element={<WebTaskDetail />} />
+              <Route path="/execution/debug" element={<ApiDebugPage />} />
+
+              {/* ===== 性能测试 ===== */}
+              <Route path="/performance" element={<PerformanceListPage />} />
+              <Route path="/performance/:id" element={<PerformanceDetailPage />} />
 
               {/* ===== 5. 测试报告 ===== */}
               <Route path="/report" element={<ReportListPage />} />
@@ -297,6 +348,8 @@ function MainLayout() {
               <Route path="/system/datasources" element={<AdminDatasources />} />
               <Route path="/system/settings" element={<AdminSettings />} />
               <Route path="/system/settings/general" element={<Settings />} />
+              {/* 企业级 Agent Runtime 监控 */}
+              <Route path="/system/runtime" element={<RuntimeMonitorPage />} />
               {/* AI 能力（隐藏的技术页面） */}
               <Route path="/system/ai" element={<AICapabilityPage />} />
               <Route path="/system/ai/agent-runtime" element={<AgentRuntimePage />} />
@@ -310,22 +363,12 @@ function MainLayout() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/home" element={<Navigate to="/dashboard" replace />} />
 
-              {/* ===== 兼容旧路由重定向 ===== */}
-              <Route path="/requirement" element={<Navigate to="/task" replace />} />
-              <Route path="/requirement/create" element={<Navigate to="/task/create" replace />} />
-              <Route path="/requirement/list" element={<Navigate to="/task" replace />} />
-              <Route path="/requirement/detail/:id" element={<Navigate to="/task/:id/detail" replace />} />
-              <Route path="/requirement/analyze/:id" element={<Navigate to="/task/:id/analyze" replace />} />
-              <Route path="/requirement/analyze" element={<Navigate to="/task/create" replace />} />
-              <Route path="/requirement/history" element={<Navigate to="/task" replace />} />
-              <Route path="/requirement/decompose" element={<Navigate to="/task/create" replace />} />
-              <Route path="/requirement-center" element={<Navigate to="/task/create" replace />} />
-              <Route path="/requirement-input" element={<Navigate to="/task/create" replace />} />
-              <Route path="/one-click" element={<Navigate to="/task/create" replace />} />
-              <Route path="/upload-tasks" element={<Navigate to="/task/create" replace />} />
+              {/* ===== 兼容旧路由重定向（保留外部书签/链接可能用到的别名） ===== */}
+              {/* /sessions 旧路由 → 新位置 */}
               <Route path="/sessions" element={<Navigate to="/system/ai/sessions" replace />} />
               <Route path="/sessions-v2" element={<Navigate to="/system/ai/sessions" replace />} />
 
+              {/* /admin 旧路由 → /system */}
               <Route path="/admin" element={<Navigate to="/system" replace />} />
               <Route path="/admin/users" element={<Navigate to="/system/users" replace />} />
               <Route path="/admin/roles" element={<Navigate to="/system/roles" replace />} />
@@ -336,43 +379,13 @@ function MainLayout() {
               <Route path="/admin/scripts" element={<Navigate to="/asset/scripts" replace />} />
               <Route path="/settings" element={<Navigate to="/system/settings" replace />} />
 
-              <Route path="/test-design" element={<Navigate to="/asset" replace />} />
-              <Route path="/test-design/generate" element={<Navigate to="/asset/generate" replace />} />
-              <Route path="/test-design/draft" element={<Navigate to="/asset/draft" replace />} />
-              <Route path="/test-design/review" element={<Navigate to="/asset/review" replace />} />
-              <Route path="/test-design/publish" element={<Navigate to="/asset/publish" replace />} />
-              <Route path="/test-design/history" element={<Navigate to="/asset/history" replace />} />
-
-              <Route path="/web/pages" element={<Navigate to="/asset/pages" replace />} />
-              <Route path="/web/create" element={<Navigate to="/task/create" replace />} />
-              <Route path="/web/execute" element={<Navigate to="/execution" replace />} />
-              <Route path="/web/results" element={<Navigate to="/execution" replace />} />
-              <Route path="/web/reports" element={<Navigate to="/report" replace />} />
-              <Route path="/web/schedule" element={<Navigate to="/execution/schedule" replace />} />
-              <Route path="/web/schedule/history" element={<Navigate to="/execution/schedule/history" replace />} />
-              <Route path="/web/task/:id" element={<Navigate to="/execution/task/:id" replace />} />
-              <Route path="/web" element={<Navigate to="/asset/pages" replace />} />
-
-              <Route path="/api-test/cases" element={<Navigate to="/asset" replace />} />
-              <Route path="/api-test/suite" element={<Navigate to="/asset" replace />} />
-              <Route path="/api-test/execution" element={<Navigate to="/execution" replace />} />
-              <Route path="/api-test/report" element={<Navigate to="/report" replace />} />
-              <Route path="/api-test/analyze" element={<Navigate to="/report" replace />} />
-              <Route path="/api-test" element={<Navigate to="/asset" replace />} />
-
+              {/* 其他旧路由别名 */}
               <Route path="/agent-runtime" element={<Navigate to="/system/ai/agent-runtime" replace />} />
               <Route path="/agent-monitor" element={<Navigate to="/system/ai/agent-monitor" replace />} />
-              <Route path="/test-case" element={<Navigate to="/asset" replace />} />
-              <Route path="/test-assets" element={<Navigate to="/asset" replace />} />
-              <Route path="/test-cases" element={<Navigate to="/asset" replace />} />
-              <Route path="/manage" element={<Navigate to="/execution" replace />} />
               <Route path="/executions" element={<Navigate to="/execution" replace />} />
               <Route path="/defect" element={<Navigate to="/report" replace />} />
               <Route path="/schedule" element={<Navigate to="/execution/schedule" replace />} />
               <Route path="/schedule-history" element={<Navigate to="/execution/schedule/history" replace />} />
-              <Route path="/script-upload" element={<Navigate to="/task/create" replace />} />
-              <Route path="/task-center" element={<Navigate to="/execution" replace />} />
-              <Route path="/task-center/:id" element={<TaskDetail />} />
             </Routes>
           </RouteErrorBoundary>
         </Content>

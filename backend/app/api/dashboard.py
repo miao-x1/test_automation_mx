@@ -3,10 +3,12 @@ Dashboard API路由
 
 数据隔离：所有统计自动过滤 user_id
 """
+import asyncio
 from typing import Optional
 from fastapi import APIRouter, Query, Depends
+from sqlalchemy.orm import Session
 from app.core.logger import log
-from app.db.database import SessionLocal
+from app.db.database import get_db
 from app.schemas.response import Response
 from app.core.auth import require_auth
 from app.models.user import User
@@ -15,13 +17,15 @@ router = APIRouter()
 
 
 @router.get("/stats", summary="获取仪表盘统计")
-async def get_dashboard_stats(user: User = Depends(require_auth)):
+async def get_dashboard_stats(
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
     """
     获取仪表盘核心统计数据（当前用户）
 
     返回：任务数、成功率、脚本数、知识库数量、图谱数量、平均执行耗时
     """
-    db = SessionLocal()
     try:
         from app.models.requirement_task import RequirementTask, RequirementStatus
         from app.models.script import Script
@@ -61,41 +65,53 @@ async def get_dashboard_stats(user: User = Depends(require_auth)):
         ).scalar()
         avg_duration = round(float(avg_duration), 1) if avg_duration else 0
 
-        # 知识库数量（Milvus）
+        # 知识库数量（Milvus） — 异步执行，避免阻塞事件循环
         kb_counts = {"elements": 0, "cases": 0, "scripts": 0}
         try:
-            from app.db.milvus_client import (
-                get_milvus_client, COLLECTION_NAME, CASE_COLLECTION_NAME, SCRIPT_COLLECTION_NAME,
-            )
-            client = get_milvus_client(allow_fail=True)
-            if client:
-                for col_name, key in [(COLLECTION_NAME, "elements"), (CASE_COLLECTION_NAME, "cases"), (SCRIPT_COLLECTION_NAME, "scripts")]:
-                    try:
-                        if client.has_collection(col_name):
-                            client.load_collection(col_name)
-                            result = client.query(col_name, filter="id >= 0", output_fields=["id"], limit=100000)
-                            kb_counts[key] = len(result)
-                    except Exception:
-                        pass
+
+            def _query_milvus():
+                from app.db.milvus_client import (
+                    get_milvus_client, COLLECTION_NAME, CASE_COLLECTION_NAME, SCRIPT_COLLECTION_NAME,
+                )
+                counts = {"elements": 0, "cases": 0, "scripts": 0}
+                client = get_milvus_client(allow_fail=True)
+                if client:
+                    for col_name, key in [(COLLECTION_NAME, "elements"), (CASE_COLLECTION_NAME, "cases"), (SCRIPT_COLLECTION_NAME, "scripts")]:
+                        try:
+                            if client.has_collection(col_name):
+                                client.load_collection(col_name)
+                                result = client.query(col_name, filter="id >= 0", output_fields=["id"], limit=100000)
+                                counts[key] = len(result)
+                        except Exception:
+                            pass
+                return counts
+
+            kb_counts = await asyncio.to_thread(_query_milvus)
         except Exception as e:
             log.warning(f"Dashboard获取Milvus统计失败: {e}")
 
-        # 图谱数量（Neo4j）
+        # 图谱数量（Neo4j） — 异步执行，避免阻塞事件循环
         graph_counts = {"pages": 0, "elements": 0, "cases": 0, "scripts": 0, "relationships": 0}
         try:
-            from app.db.neo4j_client import is_available, run_query
-            if is_available():
-                for label, key in [("Page", "pages"), ("Element", "elements"), ("TestCase", "cases"), ("Script", "scripts")]:
+
+            def _query_neo4j():
+                from app.db.neo4j_client import is_available, run_query
+                counts = {"pages": 0, "elements": 0, "cases": 0, "scripts": 0, "relationships": 0}
+                if is_available():
+                    for label, key in [("Page", "pages"), ("Element", "elements"), ("TestCase", "cases"), ("Script", "scripts")]:
+                        try:
+                            result = run_query(f"MATCH (n:{label}) RETURN count(n) as cnt")
+                            counts[key] = result[0]["cnt"] if result else 0
+                        except Exception:
+                            pass
                     try:
-                        result = run_query(f"MATCH (n:{label}) RETURN count(n) as cnt")
-                        graph_counts[key] = result[0]["cnt"] if result else 0
+                        result = run_query("MATCH ()-[r]->() RETURN count(r) as cnt")
+                        counts["relationships"] = result[0]["cnt"] if result else 0
                     except Exception:
                         pass
-                try:
-                    result = run_query("MATCH ()-[r]->() RETURN count(r) as cnt")
-                    graph_counts["relationships"] = result[0]["cnt"] if result else 0
-                except Exception:
-                    pass
+                return counts
+
+            graph_counts = await asyncio.to_thread(_query_neo4j)
         except Exception as e:
             log.warning(f"Dashboard获取Neo4j统计失败: {e}")
 
@@ -144,23 +160,21 @@ async def get_dashboard_stats(user: User = Depends(require_auth)):
             },
         })
     except Exception as e:
-        log.error(f"Dashboard统计异常: {e}", exc_info=True)
+        log.opt(exception=e).error("Dashboard统计异常")
         return Response(code=500, message=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/trend", summary="获取趋势数据")
 async def get_dashboard_trend(
     days: int = Query(7, ge=1, le=30, description="统计天数"),
     user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
 ):
     """
     获取最近N天的任务/执行趋势数据
 
     返回：每日任务数、成功数、失败数、执行耗时
     """
-    db = SessionLocal()
     try:
         from app.models.requirement_task import RequirementTask, RequirementStatus
         from app.models.execution_record import ExecutionRecord, ExecutionStatus
@@ -228,10 +242,8 @@ async def get_dashboard_trend(
 
         return Response(code=200, message="获取成功", data=trend)
     except Exception as e:
-        log.error(f"Dashboard趋势异常: {e}", exc_info=True)
+        log.opt(exception=e).error("Dashboard趋势异常")
         return Response(code=500, message=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/recent", summary="获取最近任务")
@@ -239,13 +251,13 @@ async def get_recent_tasks(
     limit: int = Query(10, ge=1, le=50, description="返回条数"),
     status: Optional[str] = Query(None, description="筛选状态: completed/failed/executing"),
     user: User = Depends(require_auth),
+    db: Session = Depends(get_db),
 ):
     """
     获取最近的需求任务列表
 
     返回：任务ID、需求、状态、创建时间、执行耗时
     """
-    db = SessionLocal()
     try:
         from app.models.requirement_task import RequirementTask, RequirementStatus
         from app.models.execution_record import ExecutionRecord, ExecutionStatus
@@ -280,7 +292,5 @@ async def get_recent_tasks(
 
         return Response(code=200, message="获取成功", data={"items": result, "total": len(result)})
     except Exception as e:
-        log.error(f"Dashboard最近任务异常: {e}", exc_info=True)
+        log.opt(exception=e).error("Dashboard最近任务异常")
         return Response(code=500, message=str(e))
-    finally:
-        db.close()

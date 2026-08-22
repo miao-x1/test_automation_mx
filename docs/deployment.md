@@ -477,3 +477,82 @@ docker exec test_auto_backend cat /app/requirements.txt
 # 检查后端进程
 docker exec test_auto_backend ps aux
 ```
+
+---
+
+## 生产环境部署
+
+### 企业级架构
+
+```
+                        ┌─────────────────────────────────────────────────┐
+                        │              Ingress / Nginx:80                  │
+                        │          (TLS + 路由 + WebSocket)               │
+                        └────────┬──────────────────────┬─────────────────┘
+                                 │                      │
+                          /api/* │              /        │
+                          /ws/*  │              静态资源  │
+                                 ▼                      ▼
+                    ┌──────────────────┐    ┌──────────────────┐
+                    │  Backend (x2-6)  │    │  Frontend (x2-4) │
+                    │  FastAPI :8000   │    │  React + Nginx   │
+                    │  + Playwright    │    │  SPA             │
+                    └────┬────┬───┬────┘    └──────────────────┘
+                         │    │   │
+            ┌────────────┘    │   └─────────────┐
+            │                 │                 │
+            ▼                 ▼                 ▼
+    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+    │ Worker (x2-8)│  │   Redis      │  │   MySQL 8.0  │
+    │ Agent 执行   │  │   任务队列    │  │   关系数据    │
+    │ BRPOP 消费  │◄─┤   + 缓存     │  │              │
+    └──────┬───────┘  └──────────────┘  └──────────────┘
+           │
+    ┌──────┴───────┬──────────────┐
+    ▼              ▼              ▼
+┌─────────┐ ┌───────────┐ ┌───────────┐
+│ Milvus  │ │  Neo4j    │ │  etcd +   │
+│ 向量库  │ │  图数据库 │ │  MinIO    │
+└─────────┘ └───────────┘ └───────────┘
+```
+
+### 生产服务清单
+
+| 服务 | 镜像 | 端口 | 职责 | 有状态 |
+|------|------|------|------|--------|
+| Frontend | nginx:alpine | 80 | SPA 静态资源 + 反向代理 | 否 |
+| Backend | python:3.11-slim | 8000 | FastAPI API + Agent Registry | 否 |
+| Worker | python:3.11-slim | - | Agent 任务执行 (Redis BRPOP) | 否 |
+| MySQL | mysql:8.0 | 3306 | 关系数据存储 | 是 |
+| Redis | redis:7-alpine | 6379 | 任务队列 + 缓存 | 是 |
+| Milvus | milvusdb/milvus:v2.4.4 | 19530 | 向量检索 | 是 |
+| etcd | bitnamilegacy/etcd:3.5 | 2379 | Milvus 元数据 | 是 |
+| MinIO | minio/minio | 9000 | Milvus 对象存储 | 是 |
+
+### Kubernetes 部署
+
+项目提供完整的 K8s 部署文件（`deploy/k8s/`）：
+
+| 文件 | 说明 |
+|------|------|
+| 00-namespace.yaml | 命名空间 |
+| 01-configmap.yaml | 配置 |
+| 02-secret.yaml | 密钥 |
+| 03-mysql.yaml | MySQL |
+| 04-redis.yaml | Redis |
+| 05-milvus.yaml | Milvus |
+| 06-neo4j.yaml | Neo4j |
+| 07-backend.yaml | 后端 |
+| 08-worker.yaml | Worker |
+| 09-frontend.yaml | 前端 |
+| 10-ingress.yaml | Ingress |
+| 11-hpa.yaml | 自动扩缩容 |
+
+### 生产环境配置要点
+
+- **Worker 独立部署**: Agent 执行与 API 服务分离，避免阻塞事件循环
+- **Redis BRPOP**: Worker 通过 Redis 队列消费任务
+- **Playwright 依赖**: Backend/Worker 镜像需安装 Chromium 依赖
+- **CJK 字体**: 镜像需包含 Noto CJK 字体以确保截图中文显示
+- **水平扩缩容**: Backend/Frontend/Worker 均支持 HPA 自动扩缩容
+- **数据持久化**: MySQL/Redis/Milvus/Neo4j 使用 PersistentVolume

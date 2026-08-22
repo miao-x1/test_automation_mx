@@ -57,3 +57,15 @@ backend/*_report.json
 diag_*.txt
 *_diag.txt
 realtime_diag.txt
+
+# Design artifacts (large generated HTML packages)
+/architecture-analysis/
+/domain-split-design/
+/test-asset-center-design/
+
+# Environment audit (one-time artifact)
+environment-audit-report.*
+ENVIRONMENT_AUDIT_REPORT.md
+
+# Local settings
+.claude/

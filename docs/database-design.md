@@ -361,3 +361,104 @@ DB_NAME=test_automation
 ✅ 外键完整性约束  
 ✅ 索引优化查询性能  
 ✅ 级联删除保证数据一致性
+
+---
+
+## 索引设计
+
+| 类型 | 索引 | 说明 |
+|------|------|------|
+| 主键 | 所有表 `id` | 自动聚簇索引 |
+| 单列 | `task.task_name` | 按名称搜索 |
+| 单列 | `task.status` | 按状态筛选 |
+| 单列 | `image_file.md5_hash` | 文件去重 |
+| 唯一 | `image_file.file_path` | 防止路径重复 |
+| 唯一 | `analysis_result.task_id` | 保证一对一 |
+| 唯一 | `script.task_id` | 保证一对一 |
+| 复合 | `task(status, created_at)` | 优化状态+时间查询 |
+| 复合 | `image_file(task_id, created_at)` | 优化任务图片列表 |
+
+---
+
+## ORM 模型架构
+
+### BaseModel (通用基类)
+
+```python
+class BaseModel(Base):
+    __abstract__ = True
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, onupdate=datetime.now)
+
+    def to_dict(self)
+    def __repr__(self)
+```
+
+### 关系预加载
+
+```python
+images = relationship("ImageFile", lazy="selectin")
+analysis_result = relationship("AnalysisResult", lazy="selectin")
+script = relationship("Script", lazy="selectin")
+```
+
+避免 N+1 查询，提升性能。
+
+### 级联删除
+
+```python
+ForeignKey("task.id", ondelete="CASCADE")
+cascade="all, delete-orphan"
+```
+
+删除 Task 时自动清理所有关联数据。
+
+---
+
+## 业务流程
+
+```
+1. 用户上传图片
+2. 创建 Task 记录 (status=pending)，保存 ImageFile
+3. 启动分析 (status=processing)
+4. Agent 分析图片
+5. 保存 AnalysisResult (elements_json, interactions_json, layout_json)
+6. 生成 Playwright 脚本
+7. 保存 Script (script_content, script_type, script_language)
+8. 更新 Task (status=success)
+9. 前端展示完整结果
+```
+
+---
+
+## 使用指南
+
+### 开发环境
+
+```bash
+cd backend
+uvicorn app.main:app --reload
+# 自动创建表，无需手动迁移
+```
+
+### 生产环境 (MySQL)
+
+```bash
+# Alembic 迁移（推荐）
+cd backend
+alembic upgrade head
+
+# 或 SQL 直接导入
+mysql -u root -p < docs/database_schema.sql
+```
+
+### 代码统计
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 数据表 | 4 | task, image_file, analysis_result, script |
+| ORM模型 | 5 | BaseModel + 4个业务模型 |
+| 索引 | 11 | 主键4 + 单列3 + 唯一3 + 复合2 |
+| 外键 | 3 | 全部级联删除 |
+| 关联关系 | 3 | 1:N + 1:1 + 1:1 |

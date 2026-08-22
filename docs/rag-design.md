@@ -370,3 +370,69 @@ app/services/requirement_flow_service.py: OK
 2. MultiVectorStore 与 milvus_client.py 的 Schema 统一
 3. 广播模式（MessageBus）真正生效，Pipeline 改为事件驱动
 4. DBMemory 修复缓存空时不查 DB 的问题
+
+---
+
+## RAG 集成方案
+
+### AnythingChatClient
+
+**文件**: `backend/app/services/knowledge/client.py`
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| R2R_BASE_URL | http://localhost:7272 | AnythingChat 服务地址 |
+| R2R_API_KEY | None | API Key（可选） |
+
+| 方法 | 说明 |
+|------|------|
+| upload(content, doc_type, metadata) | 上传文本到知识库 |
+| upload_file(file_path, metadata) | 上传文件到知识库 |
+| search(query, top_k, filters, project_id) | 语义搜索 |
+| retrieve(query, top_k, filters, project_id) | 增强检索（RAG） |
+| health() | 健康检查 |
+
+限制: top_k ≤ 3, 上下文 ≤ 1500 token, 请求头自动注入 API Key
+
+### 统一接口
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| /knowledge/upload | POST | 上传文件到知识库 |
+| /knowledge/search | POST | 语义搜索 |
+| /knowledge/retrieve | POST | 增强检索（RAG） |
+
+所有接口需 `require_auth`。
+
+### 降级策略
+
+| 场景 | 行为 |
+|------|------|
+| AnythingChat 不可用 | 返回默认业务规则 |
+| HTTP 请求超时 | 返回默认业务规则 |
+| API Key 无效 | 返回默认业务规则 |
+| Redis 不可用 | 降级到内存缓存 |
+
+降级结果包含 `"fallback": true` 标记。
+
+### Redis 缓存
+
+| 操作 | 缓存 | TTL |
+|------|------|-----|
+| search | Redis 优先，降级内存 | 300s |
+| retrieve | Redis 优先，降级内存 | 300s |
+| upload | 清除所有检索缓存 | — |
+
+缓存 Key: `rag:{md5(method:json_params)}`
+
+### 生成流程
+
+```
+需求 → 上传知识 → RAG检索 → 生成 → 保存
+```
+
+1. 需求：从 Session 加载 requirement_summary
+2. 上传知识：调用 `rag_client.upload()` 将需求摘要上传到知识库
+3. RAG检索：调用 `rag_client.retrieve()` 检索相关业务规则
+4. 生成：使用 RAG 上下文增强，流式生成 TestAsset
+5. 保存：创建 TestAsset（draft），validate_executable()

@@ -108,6 +108,98 @@ class TaskService:
         total = query.count()
         items = query.order_by(Task.created_at.desc()).offset(skip).limit(limit).all()
         return items, total
+
+    @staticmethod
+    def query_tasks(
+        db: Session,
+        user_id: int,
+        status: str = None,
+        task_type: str = None,
+        input_mode: str = None,
+        keyword: str = None,
+        start_date: str = None,
+        end_date: str = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[Task], int]:
+        """
+        多条件查询任务（核心学习方法）
+
+        SQLAlchemy 查询构建流程：
+        1. db.query(Task) → 创建基础查询
+        2. .filter() → 逐层追加 WHERE 条件
+        3. .order_by() → 排序
+        4. .count() → 获取总数（不加载 ORM 对象）
+        5. .offset().limit() → 分页
+        6. .all() → 执行查询，返回 ORM 对象列表
+
+        关键：filter() 是增量拼接，不会覆盖之前的条件。
+        这就是为什么可以一个 if 一个 filter()，最终生成一条 WHERE ... AND ... AND ... 的 SQL。
+        """
+        from datetime import datetime as dt
+        from sqlalchemy import cast, Date
+
+        # 重要：清空 Session 缓存，确保读到最新数据
+        db.expire_all()
+
+        # 1. 基础查询 + 用户隔离
+        query = db.query(Task).filter(Task.user_id == user_id)
+
+        # 2. 逐层追加筛选条件（增量式 WHERE）
+        if status:
+            try:
+                query = query.filter(Task.status == TaskStatus(status))
+            except ValueError:
+                log.warning(f"query_tasks: 无效的 status={status}")
+
+        if task_type:
+            try:
+                from app.models.task import TaskType
+                query = query.filter(Task.task_type == TaskType(task_type))
+            except ValueError:
+                log.warning(f"query_tasks: 无效的 task_type={task_type}")
+
+        if input_mode:
+            try:
+                from app.models.task import InputMode
+                query = query.filter(Task.input_mode == InputMode(input_mode))
+            except ValueError:
+                log.warning(f"query_tasks: 无效的 input_mode={input_mode}")
+
+        if keyword:
+            # 模糊搜索：WHERE task_name LIKE '%keyword%'
+            query = query.filter(Task.task_name.contains(keyword))
+
+        if start_date:
+            # 日期范围：WHERE created_at >= '2026-01-01'
+            try:
+                start_dt = dt.strptime(start_date, "%Y-%m-%d")
+                query = query.filter(Task.created_at >= start_dt)
+            except ValueError:
+                log.warning(f"query_tasks: 无效的 start_date={start_date}")
+
+        if end_date:
+            # 日期范围：WHERE created_at < '2026-02-01'（+1天，包含当天）
+            try:
+                end_dt = dt.strptime(end_date, "%Y-%m-%d")
+                # 加一天，使得 end_date 当天也包含在内
+                from datetime import timedelta
+                end_dt = end_dt + timedelta(days=1)
+                query = query.filter(Task.created_at < end_dt)
+            except ValueError:
+                log.warning(f"query_tasks: 无效的 end_date={end_date}")
+
+        # 3. 获取总数（在 offset/limit 之前！否则 count 的是分页后的数量）
+        total = query.count()
+
+        # 4. 排序 + 分页
+        items = query.order_by(Task.created_at.desc()).offset(skip).limit(limit).all()
+
+        log.info(
+            f"query_tasks | user_id={user_id} | status={status} | type={task_type} | "
+            f"keyword={keyword} | total={total} | returned={len(items)}"
+        )
+        return items, total
     
     @staticmethod
     def update_task_status(db: Session, task_id: int, status: TaskStatus, **kwargs) -> Optional[Task]:

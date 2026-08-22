@@ -330,14 +330,27 @@ class BaseAgent(ABC):
         """
         统一 LLM 调用接口。
 
-        根据 config.provider 选择对应 LLM：
-        - dashscope: 通义千问
-        - deepseek: DeepSeek
-        - ollama: 本地 Ollama
-        - mock: 返回模拟数据
-
-        返回 LLM 生成的文本。
+        优先从 ApplicationContainer 获取预初始化的 LLM Gateway,
+        降级到直接 HTTP 调用 (兼容未初始化 Container 的场景)。
         """
+        # 优先: 从 ApplicationContainer 获取预初始化的 LLM Gateway
+        try:
+            from app.bootstrap import get_container
+            container = get_container()
+            if container.is_initialized and container.llm_gateway is not None:
+                gateway = container.llm_gateway
+                content = await gateway.chat(
+                    agent_name=self.agent_name,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=temperature if temperature is not None else 0.7,
+                    max_tokens=max_tokens or 4096,
+                )
+                return content
+        except Exception:
+            pass  # Container 未初始化, 降级到直连
+
+        # 降级: 直接 HTTP 调用 (旧实现, 保持兼容)
         provider = self.config.provider or "dashscope"
         temp = temperature if temperature is not None else self.config.temperature
         tokens = max_tokens or self.config.max_tokens

@@ -1,14 +1,4 @@
-# Docker 额外依赖（在 requirements.txt 基础上补充）
-# 原始 requirements.txt 中缺失但代码中使用的依赖
-
-# 向量数据库客户端
-pymilvus==2.4.4
-
-# Redis 客户端
-redis==5.0.1
-
-# DashScope SDK（通义千问 Embedding）
-dashscope==1.17.0
-
-# 本地 Embedding 模型（可选，Dashscope 不可用时降级）
-sentence-transformers==2.5.1
+# Docker 额外依赖
+# sentence-transformers + PyTorch 体积过大（>2GB），Docker 环境使用 DashScope 云端 Embedding
+# 如需本地 Embedding 降级能力，可取消下行注释（镜像体积约增加 3GB）
+# sentence-transformers==2.5.1

@@ -1,7 +1,14 @@
 """
 Alembic环境配置
+
+- 从环境变量构建数据库 URL（Docker 兼容）
+- 自动导入所有模型以便 Alembic 检测变更
 """
+import os
+import importlib
+import pkgutil
 from logging.config import fileConfig
+
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from alembic import context
@@ -13,15 +20,25 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 导入所有模型以便自动检测
+# ---------- 从统一配置构建数据库 URL ----------
+# 使用项目的 Settings 类（已通过 load_dotenv() 加载 .env），
+# 避免 os.getenv() 单独读取导致配置不一致
+from app.core.config import settings
+
+# 覆盖 alembic.ini 中的 sqlalchemy.url
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
+# ---------- 自动导入所有模型 ----------
 from app.db.database import Base
-from app.models.base import BaseModel  # noqa
-from app.models.task import Task  # noqa
-from app.models.image_file import ImageFile  # noqa
-from app.models.analysis_result import AnalysisResult  # noqa
-from app.models.script import Script  # noqa
-from app.models.ui_element import UIElement  # noqa
-from app.models.page_element import PageElement  # noqa
+
+# 动态导入 app.models 下的所有模块
+import app.models as models_pkg
+for importer, modname, ispkg in pkgutil.iter_modules(models_pkg.__path__):
+    if not modname.startswith("_"):
+        try:
+            importlib.import_module(f"app.models.{modname}")
+        except Exception as e:
+            print(f"Warning: failed to import app.models.{modname}: {e}")
 
 target_metadata = Base.metadata
 
@@ -34,6 +51,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        compare_type=True,
     )
 
     with context.begin_transaction():
@@ -50,7 +68,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
         )
 
         with context.begin_transaction():

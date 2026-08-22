@@ -11,7 +11,7 @@ CaseRunner - 用例执行器
 5. 汇总结果
 """
 import time as _time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from app.core.logger import log
 from app.services.execution.context import ExecutionContext
 from app.services.execution.http_runner import HttpRunner

@@ -24,7 +24,7 @@ R2R 职责（入库前预处理）：
 """
 import json
 import hashlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from app.core.logger import log
 from app.core.config import settings
 
@@ -67,11 +67,24 @@ class AnythingChatClient:
         raw = f"{method}:{json.dumps(params, sort_keys=True)}"
         return hashlib.md5(raw.encode()).hexdigest()
 
+    def _get_redis_client(self):
+        """懒加载 Redis 客户端（优先 Redis，不可用时返回 None）"""
+        try:
+            import redis
+            from app.core.config import settings
+            if not settings.REDIS_ENABLED:
+                return None
+            r = redis.from_url(settings.redis_url, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
+            r.ping()
+            return r
+        except Exception:
+            return None
+
     def _get_cache(self, key: str) -> Optional[Any]:
         """从缓存获取（优先 Redis，降级内存）"""
         # 尝试 Redis
         try:
-            from app.db.database import redis_client
+            redis_client = self._get_redis_client()
             if redis_client:
                 cached = redis_client.get(f"rag:{key}")
                 if cached:
@@ -85,7 +98,7 @@ class AnythingChatClient:
     def _set_cache(self, key: str, value: Any, ttl: int = CACHE_TTL):
         """写入缓存（优先 Redis，降级内存）"""
         try:
-            from app.db.database import redis_client
+            redis_client = self._get_redis_client()
             if redis_client:
                 redis_client.setex(f"rag:{key}", ttl, json.dumps(value, ensure_ascii=False))
                 return
@@ -102,7 +115,7 @@ class AnythingChatClient:
             self._memory_cache.clear()
         # Redis 缓存清除
         try:
-            from app.db.database import redis_client
+            redis_client = self._get_redis_client()
             if redis_client:
                 pattern = f"rag:{key_prefix}*" if key_prefix else "rag:*"
                 for key in redis_client.scan_iter(pattern):

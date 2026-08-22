@@ -45,7 +45,8 @@ async def upload_document(
     支持：PDF/Word/Excel/Markdown/Swagger/Postman/文本/图片等
     """
     # 保存文件
-    upload_dir = os.path.join(os.getcwd(), "uploads", "rag")
+    from app.core.config import settings
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "rag")
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:
@@ -190,7 +191,8 @@ async def batch_upload(
     user: User = Depends(require_auth),
 ):
     """批量上传文档"""
-    upload_dir = os.path.join(os.getcwd(), "uploads", "rag")
+    from app.core.config import settings
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "rag")
     os.makedirs(upload_dir, exist_ok=True)
 
     file_paths: List[str] = []

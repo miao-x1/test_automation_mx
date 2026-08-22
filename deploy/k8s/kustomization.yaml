@@ -1,0 +1,46 @@
+# ============================================================
+# Kustomization — 统一部署入口
+# ============================================================
+# 使用方式:
+#   kubectl apply -k deploy/k8s/
+#
+# 或先构建镜像再部署:
+#   kubectl apply -k deploy/k8s/
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: test-automation
+  namespace: test-automation
+
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.yaml
+  - 03-mysql.yaml
+  - 04-redis.yaml
+  - 05-milvus.yaml
+  - 06-neo4j.yaml
+  - 07-backend.yaml
+  - 08-worker.yaml
+  - 09-frontend.yaml
+  - 10-ingress.yaml
+  - 11-hpa.yaml
+
+# 镜像替换 (按实际 registry 修改)
+images:
+  - name: test-automation/backend
+    newName: registry.example.com/test-automation/backend
+    newTag: latest
+  - name: test-automation/worker
+    newName: registry.example.com/test-automation/worker
+    newTag: latest
+  - name: test-automation/frontend
+    newName: registry.example.com/test-automation/frontend
+    newTag: latest
+
+# 通用标签
+commonLabels:
+  app.kubernetes.io/part-of: test-automation-platform
+  app.kubernetes.io/managed-by: kustomize

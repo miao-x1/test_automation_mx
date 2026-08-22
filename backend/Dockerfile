@@ -34,11 +34,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 COPY requirements-docker.txt .
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-docker.txt
+# 配置 pip 镜像源 + 超时
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set global.timeout 300
 
-# 安装 Playwright 浏览器（Chromium）
-RUN playwright install chromium
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements-docker.txt || true
+
+# 安装 Playwright 浏览器（Chromium）— 带重试，失败不阻断构建
+RUN for i in 1 2 3; do \
+        playwright install chromium && break || \
+        echo "Playwright download attempt $i failed, retrying..." && sleep 3; \
+    done; exit 0
 
 # 复制项目代码
 COPY . .
@@ -46,8 +54,12 @@ COPY . .
 # 创建必要目录
 RUN mkdir -p uploads logs reports data
 
+# 复制启动脚本
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 启动命令（先迁移数据库，再启动应用）
+CMD ["/app/entrypoint.sh"]

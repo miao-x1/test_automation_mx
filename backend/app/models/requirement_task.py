@@ -126,7 +126,7 @@ class RequirementTask(OwnedModel):
 
     # 上传图片路径（JSON数组）
     image_paths = Column(
-        Text,
+        MEDIUMTEXT,
         nullable=True,
         comment="上传的图片路径列表(JSON数组)"
     )

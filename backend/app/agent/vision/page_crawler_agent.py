@@ -10,6 +10,8 @@ PageCrawlerAgent - 使用Playwright抓取页面真实DOM元素
 定位器优先级：id > data-testid > aria-label > role > name > css_selector > xpath
 """
 import asyncio
+import concurrent.futures
+import threading
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Dict, Any, List
@@ -17,6 +19,12 @@ from app.agent.core.base_agent import BaseAgent as NewBaseAgent
 from app.agent.core.types import AgentCapability
 from app.core.config import settings
 from app.core.logger import log
+
+# 模块级线程池，避免每次爬取创建/销毁 ThreadPoolExecutor
+_CRAWLER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+# 限制同时打开的 Playwright 浏览器实例数量，防止进程泄漏导致资源耗尽
+# 这个 Semaphore 在线程池中生效（使用 threading.Semaphore）
+_PLAYWRIGHT_SEMAPHORE = threading.Semaphore(2)
 
 
 class PageCrawlerAgent(NewBaseAgent):
@@ -28,11 +36,7 @@ class PageCrawlerAgent(NewBaseAgent):
     # 优先提取的标签
     PRIORITY_TAGS = {"button", "input", "textarea", "select", "option", "a", "form", "label", "table"}
 
-    def __init__(self):
-        self.agent_type = "page_crawler"
-        self.model = None
-        self.system_prompt = None
-
+    # instance initialization handled in the main __init__ below
     # 需要额外检查交互属性的标签
     INTERACTIVE_ATTR_TAGS = {"div", "span", "p", "li", "ul", "ol", "nav", "header", "section"}
 
@@ -49,11 +53,9 @@ class PageCrawlerAgent(NewBaseAgent):
         yield {"step": "开始抓取页面", "progress": 5, "message": f"正在打开页面: {url}"}
 
         # 在独立线程中运行同步Playwright，避免Windows asyncio子进程问题
-        import concurrent.futures
         try:
             loop = asyncio.get_running_loop()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                result = await loop.run_in_executor(executor, self._crawl_sync, task_id, url)
+            result = await loop.run_in_executor(_CRAWLER_EXECUTOR, self._crawl_sync, task_id, url)
         except Exception as e:
             import traceback
             err_msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
@@ -71,22 +73,20 @@ class PageCrawlerAgent(NewBaseAgent):
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
         from playwright.sync_api import sync_playwright
+        from app.utils.browser_launcher import get_launch_kwargs
 
         messages = []
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-sandbox',
-                ]
-            )
-            context = browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                locale="zh-CN",
-            )
+        # 限制并发打开浏览器实例，防止进程/资源泄漏
+        _PLAYWRIGHT_SEMAPHORE.acquire()
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(**get_launch_kwargs())
+                context = browser.new_context(
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    locale="zh-CN",
+                )
             # 反自动化检测
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -148,7 +148,16 @@ class PageCrawlerAgent(NewBaseAgent):
                 log.error(f"Task {task_id} | 页面抓取失败: {e}")
                 raise
             finally:
-                browser.close()
+                try:
+                    browser.close()
+                except Exception:
+                    # 忽略关闭时的异常，防止二次抛出遮蔽原始错误
+                    log.debug("browser.close() failed", exc_info=True)
+        finally:
+            try:
+                _PLAYWRIGHT_SEMAPHORE.release()
+            except Exception:
+                pass
 
         return messages
 

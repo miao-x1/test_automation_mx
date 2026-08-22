@@ -26,7 +26,7 @@ import json
 import logging
 import time
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from autogen_core import message_handler, MessageContext, DefaultTopicId, default_subscription
 

@@ -485,15 +485,28 @@ async def run_task(req: TaskRunRequest):
     # 自动识别测试类型
     if req.auto_classify and not req.workflow_name:
         try:
-            classifier = AgentFactory.create("test_type_classifier")
-            classify_result = await classifier.execute(requirement=req.requirement)
-            req.task_type = req.task_type or classify_result["test_type"]
-            req.framework = req.framework or classify_result["framework"]
-            req.platform = req.platform or classify_result["platform"]
-            req.confidence = req.confidence or classify_result["confidence"]
+            # 通过 TaskDispatcher 提交 (企业级 Runtime)
+            from app.runtime.enterprise import get_task_dispatcher, TaskRequest
+            dispatcher = get_task_dispatcher()
+            classify_task_id = await dispatcher.submit(TaskRequest(
+                agent_name="test_type_classifier",
+                action="execute",
+                payload={"requirement": req.requirement},
+                timeout_seconds=60,
+                max_retries=1,
+            ))
+            classify_result_obj = await dispatcher.wait_for_result(classify_task_id, timeout=60)
+            if classify_result_obj.status == "success" and classify_result_obj.result:
+                classify_result = classify_result_obj.result
+                req.task_type = req.task_type or classify_result.get("test_type")
+                req.framework = req.framework or classify_result.get("framework")
+                req.platform = req.platform or classify_result.get("platform")
+                req.confidence = req.confidence or classify_result.get("confidence")
+            else:
+                raise Exception(classify_result_obj.error or "分类失败")
             logger.info(f"自动识别 | type={req.task_type}, framework={req.framework}, confidence={req.confidence}")
         except Exception as e:
-            logger.warning(f"自动识别失败，使用关键词回退 | error={e}")
+            logger.warning(f"自动识别失败，使用关键词回退 | error: {e}")
 
     # 确定 workflow_name
     TYPE_WORKFLOW_MAP = {
@@ -719,79 +732,87 @@ async def run_task_stream(req: TaskRunRequest):
     session_id = str(uuid.uuid4())[:8]
 
     async def event_generator():
-        # ===== Level A: 快速预检（需求解析之前）=====
         try:
-            from app.services.reuse_service import ReuseService
-            quick_result = ReuseService.quick_check(requirement=req.requirement)
-            if quick_result.get("reuse"):
-                logger.info(f"流式快速预检命中 | similarity={quick_result['similarity']}")
-                deg = quick_result.get("degradation_info", {})
-                yield f"data: {json.dumps({'event': 'reuse_hit', 'data': {'reused': True, 'similarity': quick_result['similarity'], 'script_name': quick_result.get('script_name', ''), 'script_content': quick_result.get('script_content', ''), 'script_source': 'reused', 'degradation_info': deg, 'check_type': 'quick'}}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'event': 'pipeline_completed', 'data': {'session_id': session_id, 'final_data': {'script_content': quick_result.get('script_content', '')}, 'reused': True}}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
-                return
-            else:
-                yield f"data: {json.dumps({'event': 'reuse_missed', 'data': {'similarity': quick_result.get('similarity', 0), 'message': '快速预检未命中，开始需求解析', 'check_type': 'quick'}}, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            logger.warning(f"流式快速预检失败 | error={e}")
-
-        # ===== 执行需求解析步骤，获取intent和steps =====
-        requirement_analysis = None
-        if steps and len(steps) > 0:
-            first_step = steps[0]
-            if first_step.get("agent_type") == "requirement_agent":
-                try:
-                    req_result = await task_runtime.execute(
-                        agent_type="requirement_agent",
-                        action=first_step.get("action", "analyze"),
-                        payload={"requirement": req.requirement},
-                        session_id=session_id,
-                        timeout=30,
-                    )
-                    if req_result.get("status") in ("completed", "success"):
-                        requirement_analysis = req_result.get("data", req_result)
-                except Exception as e:
-                    logger.warning(f"流式需求解析失败 | error={e}")
-
-        # ===== Level B: 精确检索（需求解析之后）=====
-        if requirement_analysis:
+            # ===== Level A: 快速预检（需求解析之前）=====
             try:
-                reuse_result = ReuseService.check_reuse(
-                    requirement=req.requirement,
-                    intent=requirement_analysis.get("intent", ""),
-                    steps=requirement_analysis.get("steps", []),
-                )
-                if reuse_result.get("reuse"):
-                    logger.info(f"流式精确检索命中 | similarity={reuse_result['similarity']}")
-                    deg = reuse_result.get("degradation_info", {})
-                    yield f"data: {json.dumps({'event': 'reuse_hit', 'data': {'reused': True, 'similarity': reuse_result['similarity'], 'script_name': reuse_result.get('script_name', ''), 'script_content': reuse_result.get('script_content', ''), 'script_source': 'reused', 'degradation_info': deg, 'check_type': 'precise'}}, ensure_ascii=False)}\n\n"
-                    yield f"data: {json.dumps({'event': 'pipeline_completed', 'data': {'session_id': session_id, 'final_data': {'script_content': reuse_result.get('script_content', '')}, 'reused': True}}, ensure_ascii=False)}\n\n"
+                from app.services.reuse_service import ReuseService
+                quick_result = ReuseService.quick_check(requirement=req.requirement)
+                if quick_result.get("reuse"):
+                    logger.info(f"流式快速预检命中 | similarity={quick_result['similarity']}")
+                    deg = quick_result.get("degradation_info", {})
+                    yield f"data: {json.dumps({'event': 'reuse_hit', 'data': {'reused': True, 'similarity': quick_result['similarity'], 'script_name': quick_result.get('script_name', ''), 'script_content': quick_result.get('script_content', ''), 'script_source': 'reused', 'degradation_info': deg, 'check_type': 'quick'}}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'event': 'pipeline_completed', 'data': {'session_id': session_id, 'final_data': {'script_content': quick_result.get('script_content', '')}, 'reused': True}}, ensure_ascii=False)}\n\n"
                     yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
                     return
                 else:
-                    yield f"data: {json.dumps({'event': 'reuse_missed', 'data': {'similarity': reuse_result.get('similarity', 0), 'message': '精确检索未命中，开始执行完整管道', 'check_type': 'precise'}}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'event': 'reuse_missed', 'data': {'similarity': quick_result.get('similarity', 0), 'message': '快速预检未命中，开始需求解析', 'check_type': 'quick'}}, ensure_ascii=False)}\n\n"
             except Exception as e:
-                logger.warning(f"流式精确检索失败 | error={e}")
+                logger.warning(f"流式快速预检失败 | error={e}")
 
-        # ===== 未命中复用，执行完整管道 =====
-        # 注入管道元数据
-        if steps and "payload" not in steps[0]:
-            steps[0]["payload"] = {"requirement": req.requirement}
-        steps[0]["payload"]["__pipeline_meta__"] = {
-            "task_id": int(req.task_id) if req.task_id.isdigit() else 0,
-            "session_id": session_id,
-            "requirement": req.requirement,
-            "execution_id": 0,
-            "script_content": "",
-        }
+            # ===== 执行需求解析步骤，获取intent和steps =====
+            requirement_analysis = None
+            if steps and len(steps) > 0:
+                first_step = steps[0]
+                if first_step.get("agent_type") == "requirement_agent":
+                    try:
+                        req_result = await task_runtime.execute(
+                            agent_type="requirement_agent",
+                            action=first_step.get("action", "analyze"),
+                            payload={"requirement": req.requirement},
+                            session_id=session_id,
+                            timeout=30,
+                        )
+                        if req_result.get("status") in ("completed", "success"):
+                            requirement_analysis = req_result.get("data", req_result)
+                    except Exception as e:
+                        logger.warning(f"流式需求解析失败 | error={e}")
 
-        async for event in task_runtime.execute_pipeline_sse(
-            steps=steps,
-            user_id=req.user_id,
-            session_id=session_id,
-            timeout=req.timeout,
-        ):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            # ===== Level B: 精确检索（需求解析之后）=====
+            if requirement_analysis:
+                try:
+                    reuse_result = ReuseService.check_reuse(
+                        requirement=req.requirement,
+                        intent=requirement_analysis.get("intent", ""),
+                        steps=requirement_analysis.get("steps", []),
+                    )
+                    if reuse_result.get("reuse"):
+                        logger.info(f"流式精确检索命中 | similarity={reuse_result['similarity']}")
+                        deg = reuse_result.get("degradation_info", {})
+                        yield f"data: {json.dumps({'event': 'reuse_hit', 'data': {'reused': True, 'similarity': reuse_result['similarity'], 'script_name': reuse_result.get('script_name', ''), 'script_content': reuse_result.get('script_content', ''), 'script_source': 'reused', 'degradation_info': deg, 'check_type': 'precise'}}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'event': 'pipeline_completed', 'data': {'session_id': session_id, 'final_data': {'script_content': reuse_result.get('script_content', '')}, 'reused': True}}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
+                        return
+                    else:
+                        yield f"data: {json.dumps({'event': 'reuse_missed', 'data': {'similarity': reuse_result.get('similarity', 0), 'message': '精确检索未命中，开始执行完整管道', 'check_type': 'precise'}}, ensure_ascii=False)}\n\n"
+                except Exception as e:
+                    logger.warning(f"流式精确检索失败 | error={e}")
+
+            # ===== 未命中复用，执行完整管道 =====
+            # 注入管道元数据
+            if steps and "payload" not in steps[0]:
+                steps[0]["payload"] = {"requirement": req.requirement}
+            steps[0]["payload"]["__pipeline_meta__"] = {
+                "task_id": int(req.task_id) if req.task_id.isdigit() else 0,
+                "session_id": session_id,
+                "requirement": req.requirement,
+                "execution_id": 0,
+                "script_content": "",
+            }
+
+            async for event in task_runtime.execute_pipeline_sse(
+                steps=steps,
+                user_id=req.user_id,
+                session_id=session_id,
+                timeout=req.timeout,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            logger.warning(f"SSE 客户端断开 | run/stream | session={session_id}")
+            raise
+        except Exception as e:
+            logger.error(f"SSE 执行异常 | run/stream | session={session_id} | error={e}", exc_info=True)
+            yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -1321,45 +1342,53 @@ async def one_click_run_stream(req: OneClickRequest):
     session_id = str(uuid.uuid4())[:8]
 
     async def event_generator():
-        # 快速预检
         try:
-            from app.services.reuse_service import ReuseService
-            quick_result = ReuseService.quick_check(requirement=req.requirement)
-            if quick_result.get("reuse"):
-                yield f"data: {json.dumps({'event': 'reuse_hit', 'data': {'similarity': quick_result['similarity']}}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'event': 'pipeline_completed', 'data': {'status': 'completed', 'reused': True, 'script_content': quick_result.get('script_content', '')}}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
-                return
+            # 快速预检
+            try:
+                from app.services.reuse_service import ReuseService
+                quick_result = ReuseService.quick_check(requirement=req.requirement)
+                if quick_result.get("reuse"):
+                    yield f"data: {json.dumps({'event': 'reuse_hit', 'data': {'similarity': quick_result['similarity']}}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'event': 'pipeline_completed', 'data': {'status': 'completed', 'reused': True, 'script_content': quick_result.get('script_content', '')}}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
+                    return
+            except Exception as e:
+                logger.warning(f"一键SSE | 快速预检失败 | error={e}")
+
+            steps = build_pipeline_steps(workflow_name, req.requirement)
+            if steps and "payload" not in steps[0]:
+                steps[0]["payload"] = {"requirement": req.requirement}
+            steps[0]["payload"]["__pipeline_meta__"] = {
+                "task_id": int(req.task_id) if req.task_id.isdigit() else 0,
+                "session_id": session_id,
+                "requirement": req.requirement,
+                "execution_id": 0,
+                "script_content": "",
+            }
+
+            start_time = time.time()
+            final_context = {}
+
+            async for event in task_runtime.execute_pipeline_sse(steps=steps, user_id=0, session_id=session_id, timeout=600):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                # 捕获最终上下文
+                if event.get("event") == "pipeline_completed":
+                    final_context = event.get("data", {}).get("context", {})
+
+            duration = time.time() - start_time
+            response = _extract_one_click_results(final_context, session_id, duration)
+
+            # 发送最终汇总结果
+            yield f"data: {json.dumps({'event': 'one_click_result', 'data': response.model_dump()}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            logger.warning(f"SSE 客户端断开 | one-click/stream | session={session_id}")
+            raise
         except Exception as e:
-            logger.warning(f"一键SSE | 快速预检失败 | error={e}")
-
-        steps = build_pipeline_steps(workflow_name, req.requirement)
-        if steps and "payload" not in steps[0]:
-            steps[0]["payload"] = {"requirement": req.requirement}
-        steps[0]["payload"]["__pipeline_meta__"] = {
-            "task_id": int(req.task_id) if req.task_id.isdigit() else 0,
-            "session_id": session_id,
-            "requirement": req.requirement,
-            "execution_id": 0,
-            "script_content": "",
-        }
-
-        start_time = time.time()
-        final_context = {}
-
-        async for event in task_runtime.execute_pipeline_sse(steps=steps, user_id=0, session_id=session_id, timeout=600):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-            # 捕获最终上下文
-            if event.get("event") == "pipeline_completed":
-                final_context = event.get("data", {}).get("context", {})
-
-        duration = time.time() - start_time
-        response = _extract_one_click_results(final_context, session_id, duration)
-
-        # 发送最终汇总结果
-        yield f"data: {json.dumps({'event': 'one_click_result', 'data': response.model_dump()}, ensure_ascii=False)}\n\n"
-        yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
+            logger.error(f"SSE 执行异常 | one-click/stream | session={session_id} | error={e}", exc_info=True)
+            yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'data': {}}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

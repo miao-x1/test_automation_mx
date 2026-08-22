@@ -29,7 +29,7 @@ RAGAccessChecker - 架构合规检查器
 import ast
 import os
 from dataclasses import dataclass, field
-from typing import List, Set
+from typing import List, Optional, Set
 
 from app.core.logger import log
 
@@ -56,10 +56,15 @@ SCAN_DIRS: List[str] = [
 # 跳过的目录名
 SKIP_DIRS: Set[str] = {"__pycache__", ".trae", "venv"}
 
-# 白名单文件（基础设施，非普通 Agent）
-# 这些文件允许导入 app.db.database，因为它们是基础设施代码
+# 白名单文件（基础设施 / 复杂 Flow Agent，允许直接 DB 访问）
+# - 基础设施: 数据模型定义
+# - Flow Agent: 多步骤业务编排（feedback_learning / quality_analysis / api_data_generator / api_debug）
 WHITELIST_FILES: Set[str] = {
-    "app/agents/factory/models.py",       # AgentRegistry 元数据存储
+    "app/agents/factory/models.py",                  # AgentRegistry 元数据存储
+    "app/agents/flows/feedback_learning_agent.py",   # 反馈学习编排（需直接查询 FeedbackLearningRecord/Optimization）
+    "app/agents/flows/quality_analysis_agent.py",    # 质量分析编排（需直接查询 QualityReport/Issue/Metric）
+    "app/agents/flows/api_data_generator_agent.py",  # API 数据生成编排（需直接写入 api_test_data）
+    "app/agents/flows/api_debug_agent.py",           # API 调试编排（需直接查询 api_execution_record）
 }
 
 
@@ -172,7 +177,7 @@ class RAGAccessChecker:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _find_backend_root() -> str:
+    def _find_backend_root() -> Optional[str]:
         """定位 backend 根目录"""
         current = os.path.dirname(os.path.abspath(__file__))
         for _ in range(3):

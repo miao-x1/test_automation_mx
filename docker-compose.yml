@@ -1,5 +1,5 @@
 # ================================================================== #
-#  UI-Automation 企业级部署                                          #
+#  Test-Automation 企业级部署                                        #
 #  一键启动: docker compose up -d                                     #
 # ================================================================== #
 
@@ -7,30 +7,28 @@ services:
   # ==================== MySQL ====================
   mysql:
     image: mysql:8.0
-    container_name: ui_auto_mysql
+    container_name: test_auto_mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-ui_auto_secure_password}
-      MYSQL_DATABASE: ${DB_NAME:-ui_automation}
-      MYSQL_USER: ${DB_USER:-ui_auto}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-ui_auto_secure_password}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-magic1212}
+      MYSQL_DATABASE: ${DB_NAME:-test_automation}
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-ui_auto_secure_password}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-magic1212}"]
       interval: 10s
       timeout: 5s
       retries: 10
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   # ==================== Redis ====================
   redis:
     image: redis:7-alpine
-    container_name: ui_auto_redis
+    container_name: test_auto_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -42,7 +40,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   # ==================== Milvus (Standalone) ====================
   # Milvus Standalone 需要 etcd + minio 作为依赖
@@ -65,11 +63,11 @@ services:
       timeout: 20s
       retries: 5
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   minio:
     image: minio/minio:RELEASE.2023-03-24T21-41-23Z
-    container_name: ui_auto_minio
+    container_name: test_auto_minio
     restart: unless-stopped
     environment:
       MINIO_ACCESS_KEY: minioadmin
@@ -83,11 +81,11 @@ services:
       timeout: 20s
       retries: 3
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   milvus:
     image: milvusdb/milvus:v2.4.4
-    container_name: ui_auto_milvus
+    container_name: test_auto_milvus
     restart: unless-stopped
     command: ["milvus", "run", "standalone"]
     environment:
@@ -110,12 +108,12 @@ services:
       timeout: 20s
       retries: 5
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   # ==================== Neo4j ====================
   neo4j:
     image: neo4j:5.20.0
-    container_name: ui_auto_neo4j
+    container_name: test_auto_neo4j
     restart: unless-stopped
     environment:
       NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-neo4j_secure_password}
@@ -134,19 +132,20 @@ services:
       timeout: 10s
       retries: 10
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   # ==================== Backend (FastAPI) ====================
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ui_auto_backend
+    container_name: test_auto_backend
     restart: unless-stopped
     env_file:
       - .env
     environment:
       - DB_HOST=mysql
+      - DB_PORT=3306
       - REDIS_HOST=redis
       - MILVUS_HOST=milvus
       - MILVUS_STANDALONE=1
@@ -154,15 +153,19 @@ services:
       - USE_SQLITE=False
       - APP_ENV=production
       - DEBUG=False
+      - UPLOAD_DIR=/app/uploads
+      - REPORT_DIR=/app/reports
+      - DATA_DIR=/app/data
       # R2R 外部知识服务（不随 docker-compose 启动，需单独部署）
       - R2R_BASE_URL=http://localhost:7272
       - R2R_API_KEY=${R2R_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
-      - backend_uploads:/app/uploads
-      - backend_reports:/app/reports
-      - backend_logs:/app/logs
+      - ./data/uploads:/app/uploads
+      - ./data/reports:/app/reports
+      - ./data/logs:/app/logs
+      - ./data/data:/app/data
     depends_on:
       mysql:
         condition: service_healthy
@@ -173,25 +176,25 @@ services:
       neo4j:
         condition: service_healthy
     networks:
-      - ui_auto_net
+      - test_auto_net
 
   # ==================== Frontend (React + Nginx) ====================
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: ui_auto_frontend
+    container_name: test_auto_frontend
     restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
       - backend
     networks:
-      - ui_auto_net
+      - test_auto_net
 
 # ==================== 网络 ====================
 networks:
-  ui_auto_net:
+  test_auto_net:
     driver: bridge
 
 # ==================== 持久化卷 ====================
@@ -203,6 +206,3 @@ volumes:
   milvus_data:
   neo4j_data:
   neo4j_logs:
-  backend_uploads:
-  backend_reports:
-  backend_logs:

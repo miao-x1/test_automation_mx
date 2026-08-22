@@ -36,7 +36,7 @@ export interface AuthResponse {
   token_type: string;
 }
 
-const USER_KEY = 'ui_automation_user';
+const USER_KEY = 'test_automation_user';
 
 /**
  * 用户注册

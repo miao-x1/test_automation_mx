@@ -1,12 +1,17 @@
 """
-AgentRegistry 模型 - Agent 注册信息表
+AgentRegistry 模型 - Agent 注册信息表(管理中心核心表)
 
 持久化 Agent 元数据到数据库，支持：
 1. 运行时动态注册/移除 Agent（不重启）
 2. Agent 版本管理和配置追踪
-3. 管理界面展示 Agent 清单
+3. Agent 生命周期状态追踪
+4. 管理界面展示 Agent 清单
+5. 配置热更新(config 字段)
+
+核心字段: agent_name / agent_type / version / description / config / status
 """
-from sqlalchemy import Column, String, Text, Boolean, Integer, Index
+from sqlalchemy import Column, String, Text, Boolean, Integer, Index, DateTime
+from sqlalchemy.dialects import mysql
 from app.models.base import BaseModel
 
 
@@ -79,6 +84,10 @@ class AgentRegistry(BaseModel):
         String(32), nullable=False, default="1.0.0",
         comment="Agent 版本号"
     )
+    config = Column(
+        mysql.MEDIUMTEXT(), nullable=True,
+        comment="Agent 配置(JSON): 模型参数/超时/重试/自定义参数"
+    )
     metadata_json = Column(
         Text, nullable=True,
         comment="额外元数据(JSON)"
@@ -104,6 +113,7 @@ class AgentRegistry(BaseModel):
             "status": self.status,
             "enabled": self.enabled,
             "version": self.version,
+            "config": json.loads(self.config) if self.config else {},
             "metadata": json.loads(self.metadata_json) if self.metadata_json else {},
             "created_at": str(self.created_at) if self.created_at else None,
             "updated_at": str(self.updated_at) if self.updated_at else None,

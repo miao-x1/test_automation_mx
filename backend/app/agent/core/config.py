@@ -73,7 +73,7 @@ class AgentConfig(BaseModel):
         """获取API URL，优先用配置值，否则取全局"""
         if self.api_url:
             return self.api_url
-        return getattr(settings, "QWEN_URL", "")
+        return getattr(settings, "QWEN_API_URL", "")
 
     def to_legacy(self) -> dict:
         """转换为旧 AgentFactory.AgentConfig 兼容格式"""

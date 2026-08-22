@@ -14,7 +14,7 @@
   - 禁止删除用户数据
 """
 import json
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from app.core.logger import log
 from app.db.database import SessionLocal
 from app.models.test_asset import TestAsset as TestAssetV2, AssetType, AssetStatus, AssetSource

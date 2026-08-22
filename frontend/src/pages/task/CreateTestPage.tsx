@@ -50,6 +50,7 @@ export default function CreateTestPage() {
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [requirement, setRequirement] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [imageServerPath, setImageServerPath] = useState('');
   const [docFile, setDocFile] = useState<any>(null);
   const [urlAddress, setUrlAddress] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -114,9 +115,9 @@ export default function CreateTestPage() {
       if (!requirement.trim()) { message.warning('请输入测试需求'); return; }
       reqData.requirement = requirement.trim();
     } else if (inputMode === 'image') {
-      if (!imageUrl) { message.warning('请上传图片'); return; }
+      if (!imageServerPath && !imageUrl) { message.warning('请上传图片'); return; }
       reqData.requirement = `请分析页面截图并生成测试用例`;
-      reqData.image_paths = [imageUrl];
+      reqData.image_paths = imageServerPath ? [imageServerPath] : [];
     } else if (inputMode === 'document') {
       if (!docFile) { message.warning('请上传文档'); return; }
       reqData.requirement = `请分析文档「${docFile.name}」并生成测试用例`;
@@ -225,9 +226,26 @@ export default function CreateTestPage() {
             const reader = new FileReader();
             reader.onload = (e) => {
               setImageUrl(e.target?.result as string);
-              message.success('图片已选择');
             };
             reader.readAsDataURL(file);
+            // 同时上传到服务器获取路径
+            const formData = new FormData();
+            formData.append('files', file);
+            fetch('/api/requirement/upload_images', {
+              method: 'POST',
+              body: formData,
+              credentials: 'include',
+            })
+              .then(res => res.json())
+              .then(data => {
+                if (data.data?.image_paths?.[0]) {
+                  setImageServerPath(data.data.image_paths[0]);
+                  message.success('图片上传成功');
+                } else {
+                  message.error('图片上传失败');
+                }
+              })
+              .catch(() => message.error('图片上传失败'));
             return false;
           }}
         >

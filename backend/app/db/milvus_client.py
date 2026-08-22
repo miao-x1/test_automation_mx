@@ -149,7 +149,7 @@ def get_milvus_client(allow_fail=True) -> MilvusClient | None:
                     time.sleep(1)
                     _cleanup_lock_file()
 
-                if settings.MILVUS_HOST in ("localhost", "127.0.0.1") and not os.environ.get("MILVUS_STANDALONE") and settings.MILVUS_PORT != 19530:
+                if settings.MILVUS_HOST in ("localhost", "127.0.0.1") and not settings.MILVUS_STANDALONE and settings.MILVUS_PORT != 19530:
                     log.info(f"使用Milvus Lite模式 | 数据文件: {MILVUS_DB_FILE}")
                     _milvus_client = MilvusClient(MILVUS_DB_FILE)
                 else:

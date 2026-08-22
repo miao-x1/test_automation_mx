@@ -531,10 +531,18 @@ async def retry_execution(
 async def execution_stream(
     execution_id: int,
     user: User = Depends(require_auth),
-    db: Session = Depends(get_db),
 ):
-    """SSE实时推送执行进度"""
-    _check_execution_owner(db, execution_id, user)
+    """SSE实时推送执行进度
+
+    注意: 不使用 Depends(get_db)，因为 SSE 流期间 DB 连接不会释放，
+    会导致连接池耗尽。改为手动管理 session，校验后立即关闭。
+    """
+    from app.db.database import SessionLocal
+    db = SessionLocal()
+    try:
+        _check_execution_owner(db, execution_id, user)
+    finally:
+        db.close()
     return EventSourceResponse(
         ExecutionService.run_execution(execution_id)
     )

@@ -4,11 +4,11 @@
 -- 排序规则: utf8mb4_unicode_ci
 
 -- 创建数据库
-CREATE DATABASE IF NOT EXISTS `ui_automation` 
+CREATE DATABASE IF NOT EXISTS `test_automation` 
     DEFAULT CHARACTER SET utf8mb4 
     COLLATE utf8mb4_unicode_ci;
 
-USE `ui_automation`;
+USE `test_automation`;
 
 -- ========================================
 -- 1. 任务表 (task)

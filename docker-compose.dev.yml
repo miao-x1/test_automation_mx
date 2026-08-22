@@ -1,0 +1,155 @@
+# ================================================================== #
+#  本地开发用 Docker Compose — 仅启动数据库服务                        #
+#                                                                    #
+#  用途: 在 PyCharm 中调试前后端代码时，仅用 Docker 运行数据库。       #
+#        前端 (Vite :3000) 和后端 (Uvicorn :8000) 在 PyCharm 中运行。  #
+#                                                                    #
+#  启动:  docker compose -f docker-compose.dev.yml up -d             #
+#  停止:  docker compose -f docker-compose.dev.yml down             #
+#  查看日志: docker compose -f docker-compose.dev.yml logs -f        #
+# ================================================================== #
+
+services:
+  # ==================== MySQL ====================
+  mysql:
+    image: mysql:8.0
+    container_name: test_auto_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: magic1212
+      MYSQL_DATABASE: test_automation
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pmagic1212"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - test_auto_net
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: test_auto_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test_auto_net
+
+  # ==================== Milvus (Standalone) ====================
+  etcd:
+    container_name: milvus-etcd
+    image: bitnamilegacy/etcd:3.5
+    restart: unless-stopped
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_ADVERTISE_CLIENT_URLS=http://milvus-etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+    volumes:
+      - etcd_data:/bitnami/etcd
+    healthcheck:
+      test: ["CMD-SHELL", "etcdctl --endpoints=http://localhost:2379 endpoint health"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    networks:
+      - test_auto_net
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-24T21-41-23Z
+    container_name: test_auto_minio
+    restart: unless-stopped
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - test_auto_net
+
+  milvus:
+    image: milvusdb/milvus:v2.4.4
+    container_name: test_auto_milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    networks:
+      - test_auto_net
+
+  # ==================== Neo4j ====================
+  neo4j:
+    image: neo4j:5.26.0
+    container_name: test_auto_neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/neo4j_secure_password
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_max__size: 512M
+      NEO4J_dbms_memory_pagecache_size: 512M
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - test_auto_net
+
+# ==================== 网络 ====================
+networks:
+  test_auto_net:
+    driver: bridge
+
+# ==================== 持久化卷 ====================
+volumes:
+  mysql_data:
+  redis_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  neo4j_data:
+  neo4j_logs:

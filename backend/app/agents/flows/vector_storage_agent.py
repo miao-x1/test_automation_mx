@@ -33,7 +33,7 @@ VectorStorageAgent - 向量存储 Agent
 """
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from autogen_core import message_handler, MessageContext, DefaultTopicId, default_subscription
 

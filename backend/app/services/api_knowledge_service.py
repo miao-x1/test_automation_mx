@@ -81,6 +81,8 @@ class APIKnowledgeService:
             try:
                 api_id = self._save_api(api_data, file_path, source_type, project_id, user_id)
                 api_ids.append(api_id)
+                # 同步到 api_endpoint 子表 (Header/Body/Parameter 分离)
+                self._sync_to_endpoint_subtables(api_data, api_id, source_type, user_id)
             except Exception as e:
                 errors.append(f"接口 {api_data.get('path', '')} 保存失败: {e}")
 
@@ -188,7 +190,7 @@ class APIKnowledgeService:
 
                 # 参数
                 params = details.get("parameters", [])
-                api["parameters_json"] = json.dumps([
+                param_list = [
                     {
                         "name": p.get("name", ""),
                         "in": p.get("in", "query"),
@@ -199,11 +201,14 @@ class APIKnowledgeService:
                         "enum": p.get("schema", {}).get("enum", []),
                     }
                     for p in params
-                ], ensure_ascii=False)
+                ]
+                api["parameters_json"] = json.dumps(param_list, ensure_ascii=False)
+                # 结构化分类数据 (供子表使用)
+                api["_parameters"] = [p for p in param_list if p.get("in") != "header"]
 
                 # 请求头（从 parameters 中过滤）
                 headers = [p for p in params if p.get("in") == "header"]
-                api["headers_json"] = json.dumps([
+                header_list = [
                     {
                         "key": h.get("name", ""),
                         "value": h.get("schema", {}).get("default", ""),
@@ -211,19 +216,23 @@ class APIKnowledgeService:
                         "description": h.get("description", ""),
                     }
                     for h in headers
-                ], ensure_ascii=False)
+                ]
+                api["headers_json"] = json.dumps(header_list, ensure_ascii=False)
+                api["_headers"] = header_list
 
                 # 请求体
                 request_body = details.get("requestBody", {})
                 if request_body:
                     content = request_body.get("content", {})
                     app_json = content.get("application/json", {})
-                    api["request_body_json"] = json.dumps({
+                    body_data = {
                         "content_type": "application/json",
                         "schema": app_json.get("schema", {}),
                         "example": app_json.get("example", {}),
                         "required": request_body.get("required", False),
-                    }, ensure_ascii=False)
+                    }
+                    api["request_body_json"] = json.dumps(body_data, ensure_ascii=False)
+                    api["_body"] = body_data
 
                 # 响应
                 responses = details.get("responses", {})
@@ -309,9 +318,10 @@ class APIKnowledgeService:
                     "default": qp.get("value", ""),
                 })
             api["parameters_json"] = json.dumps(params, ensure_ascii=False)
+            api["_parameters"] = params
 
             # 请求头
-            api["headers_json"] = json.dumps([
+            header_list = [
                 {
                     "key": h.get("key", ""),
                     "value": h.get("value", ""),
@@ -319,16 +329,20 @@ class APIKnowledgeService:
                     "description": h.get("description", ""),
                 }
                 for h in headers
-            ], ensure_ascii=False)
+            ]
+            api["headers_json"] = json.dumps(header_list, ensure_ascii=False)
+            api["_headers"] = header_list
 
             # 请求体
             if body and body.get("raw"):
-                api["request_body_json"] = json.dumps({
+                body_data = {
                     "content_type": body.get("mode", "raw"),
                     "schema": {},
                     "example": body.get("raw", "")[:2000],
                     "required": True,
-                }, ensure_ascii=False)
+                }
+                api["request_body_json"] = json.dumps(body_data, ensure_ascii=False)
+                api["_body"] = body_data
 
             # 响应
             responses = item.get("response", [])
@@ -507,9 +521,79 @@ class APIKnowledgeService:
         finally:
             db.close()
 
-    # ------------------------------------------------------------------
-    # 三库存储
-    # ------------------------------------------------------------------
+    def _sync_to_endpoint_subtables(
+        self,
+        api_data: Dict[str, Any],
+        api_knowledge_id: int,
+        source_type: str,
+        user_id: Optional[int],
+    ) -> None:
+        """将解析结果同步到 api_endpoint + 子表 (Header/Body/Parameter 分离)
+
+        在 Postman/Swagger 文件解析后自动调用:
+        1. 查找或创建 api_endpoint 记录 (method + path 匹配)
+        2. 将 _headers / _body / _parameters 分类保存到子表
+        """
+        db = SessionLocal()
+        try:
+            from app.models.api_endpoint import ApiEndpoint
+            from app.repositories.api_endpoint_repository import ApiEndpointRepository
+
+            repo = ApiEndpointRepository()
+            method = api_data.get("method", "GET")
+            path = api_data.get("path", "")
+
+            # 查找已存在的 api_endpoint
+            endpoint = db.query(ApiEndpoint).filter(
+                ApiEndpoint.method == method,
+                ApiEndpoint.path == path,
+                ApiEndpoint.is_deleted == False,
+            ).first()
+
+            if not endpoint:
+                # 创建新的 api_endpoint
+                endpoint = ApiEndpoint(
+                    name=api_data.get("api_name", f"{method} {path}"),
+                    method=method,
+                    path=path,
+                    summary=api_data.get("summary", ""),
+                    description=api_data.get("description", ""),
+                    tags=api_data.get("tags", ""),
+                    module=api_data.get("module", ""),
+                    status="draft",
+                    source=source_type,
+                    auth_type=api_data.get("auth_type", "none"),
+                    version=1,
+                    is_deleted=False,
+                    user_id=user_id,
+                    created_by=user_id,
+                )
+                db.add(endpoint)
+                db.flush()
+
+            # 保存子表数据
+            headers = api_data.get("_headers", [])
+            if headers:
+                repo.save_headers(db, endpoint.id, headers)
+
+            body = api_data.get("_body")
+            if body:
+                repo.save_body(db, endpoint.id, body)
+
+            parameters = api_data.get("_parameters", [])
+            if parameters:
+                repo.save_parameters(db, endpoint.id, parameters)
+
+            db.commit()
+            logger.info(
+                f"[APIKnowledge] 同步子表 ep={endpoint.id} "
+                f"headers={len(headers)} params={len(parameters)} body={'Y' if body else 'N'}"
+            )
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"[APIKnowledge] 同步子表失败: {e}")
+        finally:
+            db.close()
 
     async def _store_to_vector_graph(self, api_id: int, api_data: Dict[str, Any]):
         """存储到 Milvus + Neo4j"""

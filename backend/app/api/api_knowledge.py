@@ -38,7 +38,8 @@ async def upload_api_file(
     支持：Swagger / OpenAPI / Postman / JMeter / JSON
     自动流程：检测来源 → 解析 → 结构化 → MySQL + Milvus + Neo4j → 依赖检测
     """
-    upload_dir = os.path.join(os.getcwd(), "uploads", "api_knowledge")
+    from app.core.config import settings
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "api_knowledge")
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:

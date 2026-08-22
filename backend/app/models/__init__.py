@@ -65,6 +65,73 @@ from app.models.test_case_review import TestCaseReview
 from app.models.mind_map import MindMap
 from app.models.agent_message import AgentMessage
 
+# ===== API 接口管理模块(新增,与既有 api_knowledge 解耦) =====
+from app.models.api_endpoint import (
+    ApiEndpoint,
+    ApiEndpointVersion,
+    ApiHeader,
+    ApiBody,
+    ApiParameter,
+    EndpointStatus,
+    EndpointSource,
+    HTTPMethod,
+    AuthType as EndpointAuthType,
+)
+
+# ===== 测试资产中心模块(新增,索引层叠加在既有业务表之上) =====
+from app.models.asset_registry import (
+    AssetRegistry,
+    AssetVersion,
+    AssetRelation,
+    AssetRegistryType,
+    AssetRegistryStatus,
+    AssetRegistrySource,
+    AssetRelationType,
+)
+
+# ===== 企业级 Agent Runtime 任务记录(新增) =====
+from app.models.runtime_task import (
+    RuntimeTask,
+    RuntimeTaskStatus,
+    RuntimeTaskPriority,
+)
+
+# ===== Prompt 版本管理(新增) =====
+from app.models.prompt_version import (
+    PromptVersion,
+    PromptStatus,
+)
+
+# ===== 测试质量分析(新增) =====
+from app.models.quality_report import QualityReport
+
+# ===== AI 测试反馈学习(新增) =====
+from app.models.feedback_learning import (
+    FeedbackLearningRecord,
+    FeedbackOptimization,
+)
+
+# ===== 企业级安全模块(新增) =====
+from app.models.security import (
+    ApiKey,
+    OperationLog,
+    AuditEvent,
+    MaskingRule,
+    AuditEventType,
+    AuditSeverity,
+    MaskType,
+)
+
+# ===== 性能测试模块(新增) =====
+from app.models.performance import (
+    PerformanceTask,
+    PerformanceResult,
+    PerformanceMetric,
+    PerformanceTestType,
+    TaskStatus as PerformanceTaskStatus,
+    ResultStatus,
+)
+
 __all__ = [
     "BaseModel",
     "OwnedModel",
@@ -168,4 +235,44 @@ __all__ = [
     "TestCaseReview",
     "MindMap",
     "AgentMessage",
+    # ===== API 接口管理模块 =====
+    "ApiEndpoint",
+    "ApiEndpointVersion",
+    "EndpointStatus",
+    "EndpointSource",
+    "HTTPMethod",
+    "EndpointAuthType",
+    # ===== 测试资产中心模块 =====
+    "AssetRegistry",
+    "AssetVersion",
+    "AssetRelation",
+    "AssetRegistryType",
+    "AssetRegistryStatus",
+    "AssetRegistrySource",
+    "AssetRelationType",
+    # ===== Runtime 任务记录 =====
+    "RuntimeTask",
+    "RuntimeTaskStatus",
+    "RuntimeTaskPriority",
+    # ===== Prompt 版本管理 =====
+    "PromptVersion",
+    "PromptStatus",
+    # ===== AI 测试反馈学习 =====
+    "FeedbackLearningRecord",
+    "FeedbackOptimization",
+    # ===== 企业级安全模块 =====
+    "ApiKey",
+    "OperationLog",
+    "AuditEvent",
+    "MaskingRule",
+    "AuditEventType",
+    "AuditSeverity",
+    "MaskType",
+    # ===== 性能测试模块 =====
+    "PerformanceTask",
+    "PerformanceResult",
+    "PerformanceMetric",
+    "PerformanceTestType",
+    "PerformanceTaskStatus",
+    "ResultStatus",
 ]

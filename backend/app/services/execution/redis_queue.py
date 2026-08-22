@@ -29,16 +29,20 @@ class RedisExecutionQueue:
         self._running = False
 
     def _get_redis(self):
-        """获取Redis连接"""
+        """获取Redis连接（连接池 + keepalive + 多连接支持并发Worker）"""
         if self._redis is None:
             try:
                 import redis
-                self._redis = redis.from_url(
+                pool = redis.ConnectionPool.from_url(
                     settings.redis_url,
+                    max_connections=10,
                     decode_responses=True,
-                    socket_timeout=5,
+                    socket_timeout=30,
                     socket_connect_timeout=5,
+                    socket_keepalive=True,
+                    health_check_interval=30,
                 )
+                self._redis = redis.Redis(connection_pool=pool)
                 self._redis.ping()
                 log.info(f"RedisExecutionQueue | 连接成功 | {settings.REDIS_HOST}:{settings.REDIS_PORT}")
             except Exception as e:
@@ -108,8 +112,8 @@ class RedisExecutionQueue:
 
         while self._running:
             try:
-                # BRPOP 阻塞式获取（1秒超时）
-                result = r.brpop(self.QUEUE_KEY, timeout=1)
+                # BRPOP 阻塞式获取（1秒超时）— 用 to_thread 避免阻塞事件循环
+                result = await asyncio.to_thread(r.brpop, self.QUEUE_KEY, 1)
                 if result is None:
                     continue
 
@@ -141,14 +145,26 @@ class RedisExecutionQueue:
 
 def get_execution_queue():
     """
-    获取执行队列实例
+    获取执行队列实例（单例）
 
     根据 REDIS_ENABLED 配置自动选择：
     - True: RedisExecutionQueue
     - False: ExecutionQueue（asyncio.Queue）
     """
     if settings.REDIS_ENABLED:
-        return RedisExecutionQueue()
+        return _get_redis_queue_instance()
     else:
         from app.services.execution.execution_queue import ExecutionQueue
         return ExecutionQueue()
+
+
+# 单例实例
+_redis_queue_instance: Optional[RedisExecutionQueue] = None
+
+
+def _get_redis_queue_instance() -> RedisExecutionQueue:
+    """获取 RedisExecutionQueue 单例，避免每次调用创建新实例导致 worker 泄漏。"""
+    global _redis_queue_instance
+    if _redis_queue_instance is None:
+        _redis_queue_instance = RedisExecutionQueue()
+    return _redis_queue_instance

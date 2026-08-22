@@ -1,4 +1,4 @@
-﻿"""
+"""
 AutoGen Core Runtime - 统一 Agent 基类
 
 BaseRoutedAgent 继承自 autogen_core.RoutedAgent，
@@ -20,7 +20,7 @@ import os
 import time
 import traceback
 import logging
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional, Callable, Set
 
 from autogen_core import (
     RoutedAgent,
@@ -88,6 +88,8 @@ class BaseRoutedAgent(RoutedAgent):
         self._start_time: Optional[float] = None
         self._fallback_agent_type: str = self.__class__.__name__
         self._fallback_agent_key: str = "default"
+        # 跟踪 fire-and-forget task 引用，防止被 GC 回收
+        self._pending_tasks: Set[asyncio.Task] = set()
         # 注册默认 action handlers
         self._register_default_actions()
 
@@ -347,7 +349,9 @@ class BaseRoutedAgent(RoutedAgent):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(self._publish_progress(**kwargs))
+                task = asyncio.create_task(self._publish_progress(**kwargs))
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
             else:
                 logger.warning(f"[{self._agent_type}] No running event loop for publish_progress")
         except RuntimeError:
@@ -358,7 +362,9 @@ class BaseRoutedAgent(RoutedAgent):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(self._publish_result(**kwargs))
+                task = asyncio.create_task(self._publish_result(**kwargs))
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
             else:
                 logger.warning(f"[{self._agent_type}] No running event loop for publish_result")
         except RuntimeError:
@@ -542,131 +548,141 @@ class BaseRoutedAgent(RoutedAgent):
         session_key: str = "",
     ) -> str:
         """
-        统一 LLM 调用（异步，自动追踪 Prompt/Model/Token/Duration）
+        统一 LLM 调用(通过 LLMGateway,禁止直连模型 API)
 
-        自动通过 emit_event 将以下信息发送给 CollectorAgent：
+        自动通过 emit_event 将以下信息发送给 CollectorAgent:
         - System Prompt 内容
         - User Prompt 内容
         - 模型名称
-        - Token 消耗（prompt_tokens / completion_tokens / total_tokens）
+        - Token 消耗(prompt_tokens / completion_tokens / total_tokens)
         - 耗时
         - 错误信息
 
-        支持的 provider（按优先级）:
-        1. dashscope (通义千问)
-        2. deepseek
-        3. ollama (本地)
-        4. mock (测试用)
+        调用链:
+            Agent → LLMGateway → ModelRouter → Provider → 模型供应商
+            失败时按 fallback chain 自动切换:qwen → deepseek → ollama → mock
 
-        通过环境变量配置:
-        - LLM_PROVIDER: 选择 provider
-        - DASHSCOPE_API_KEY
-        - DEEPSEEK_API_KEY
-        - LLM_MODEL: 模型名
+        Prompt 来源优先级:
+        1. 调用方显式传入的 system_prompt(最高优先级)
+        2. PromptManager 管理的活跃版本(支持版本管理/AB测试/回滚)
+        3. Factory 注入的 _system_prompt / get_context("system_prompt")
         """
-        import httpx
-
-        provider = os.getenv("LLM_PROVIDER", "dashscope").lower()
-        model = os.getenv("LLM_MODEL", "qwen-plus")
         start_time = time.time()
 
-        if provider == "mock":
-            duration = time.time() - start_time
-            if task_id:
-                await self.emit_event(
-                    task_id=task_id,
-                    event_type="prompt",
-                    step=step or "llm_call",
-                    status="success",
-                    message="Mock LLM 调用",
-                    model_name=model,
-                    prompt=system_prompt[:500],
-                    user_prompt=user_prompt[:500],
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    total_tokens=0,
-                    duration=duration,
-                    message_type="LLMCall",
-                    session_key=session_key,
-                )
-            return '{"status": "mock", "message": "Mock LLM response"}'
+        # Prompt 多源回退:显式传入 > PromptManager > Factory 注入
+        if not system_prompt:
+            # 尝试从 PromptManager 获取(Agent 内部 Prompt 版本管理)
+            try:
+                from app.services.prompt_manager import PromptManager
+                agent_name = getattr(self, "_display_name", "") or self.__class__.__name__
+                # 使用 spec.name 作为 agent_name(如果可用)
+                spec = getattr(self, "_spec", None)
+                if spec and hasattr(spec, "name"):
+                    agent_name = spec.name
+                managed_prompt = PromptManager.get_prompt(agent_name, "system_prompt")
+                if managed_prompt:
+                    system_prompt = managed_prompt
+            except Exception:
+                pass  # PromptManager 不可用时静默回退
 
-        headers = {"Content-Type": "application/json"}
+            # 仍为空,回退到 Factory 注入的值
+            if not system_prompt:
+                system_prompt = (
+                    self.get_context("system_prompt")
+                    if hasattr(self, "get_context")
+                    else ""
+                ) or getattr(self, "_system_prompt", "")
 
-        if provider == "dashscope":
-            api_key = os.getenv("DASHSCOPE_API_KEY", "")
-            url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-            headers["Authorization"] = f"Bearer {api_key}"
-        elif provider == "deepseek":
-            api_key = os.getenv("DEEPSEEK_API_KEY", "")
-            url = "https://api.deepseek.com/v1/chat/completions"
-            headers["Authorization"] = f"Bearer {api_key}"
-            model = model or "deepseek-chat"
-        elif provider == "ollama":
-            url = "http://localhost:11434/v1/chat/completions"
-            model = model or "qwen2.5:7b"
-        else:
-            return '{"error": f"Unknown provider: {provider}"}'
+        # 获取 Agent 标识(用于路由与统计)
+        agent_name = getattr(self, "_display_name", "") or self.__class__.__name__
+        spec = getattr(self, "_spec", None)
+        if spec and hasattr(spec, "name"):
+            agent_name = spec.name
 
-        body = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-
+        # 通过 LLMGateway 调用(统一入口)
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.post(url, json=body, headers=headers)
-                resp.raise_for_status()
-                result = resp.json()
+            from app.llm import get_gateway
+            gateway = get_gateway()
+
+            # 从 AgentSpec 提取优先模型/供应商(覆盖路由)
+            preferred_model = ""
+            preferred_provider = ""
+            if spec and spec.model:
+                preferred_model = spec.model.model_name or ""
+                preferred_provider = spec.model.provider or ""
+
+            resp = await gateway.chat_with_response(
+                agent_name=agent_name,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                task_id=task_id,
+                step=step,
+                session_key=session_key,
+                preferred_model=preferred_model,
+                preferred_provider=preferred_provider,
+            )
 
             duration = time.time() - start_time
 
-            # 提取 Token 信息
-            usage = result.get("usage", {})
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            completion_tokens = usage.get("completion_tokens", 0)
-            total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+            if resp.success:
+                # 发送成功事件给 CollectorAgent(SSE/WebSocket 推送)
+                if task_id:
+                    await self.emit_event(
+                        task_id=task_id,
+                        event_type="prompt",
+                        step=step or "llm_call",
+                        status="success",
+                        message=f"LLM 调用完成: {resp.model}" + (
+                            f"(切换自 {resp.requested_model})" if resp.fallback_used else ""
+                        ),
+                        model_name=resp.model,
+                        prompt=system_prompt[:500],
+                        user_prompt=user_prompt[:500],
+                        prompt_tokens=resp.prompt_tokens,
+                        completion_tokens=resp.completion_tokens,
+                        total_tokens=resp.total_tokens,
+                        duration=resp.duration,
+                        message_type="LLMCall",
+                        session_key=session_key,
+                    )
+                return resp.content
 
-            content = result["choices"][0]["message"]["content"]
-
-            # 自动发送事件给 CollectorAgent
-            if task_id:
-                await self.emit_event(
-                    task_id=task_id,
-                    event_type="prompt",
-                    step=step or "llm_call",
-                    status="success",
-                    message=f"LLM 调用完成: {model}",
-                    model_name=model,
-                    prompt=system_prompt[:500],
-                    user_prompt=user_prompt[:500],
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                    duration=duration,
-                    message_type="LLMCall",
-                    session_key=session_key,
-                )
-
-            return content
-
-        except Exception as e:
+            # 失败(所有供应商都失败)
             duration = time.time() - start_time
             error_tb = traceback.format_exc()
-
             if task_id:
                 await self.emit_event(
                     task_id=task_id,
                     event_type="error",
                     step=step or "llm_call",
                     status="error",
-                    message=f"LLM 调用失败: {e}",
-                    model_name=model,
+                    message=f"LLM 调用失败(所有供应商): {resp.error}",
+                    model_name=resp.model or "unknown",
+                    prompt=system_prompt[:500],
+                    user_prompt=user_prompt[:500],
+                    duration=duration,
+                    error_message=str(resp.error),
+                    error_traceback=error_tb,
+                    message_type="LLMCall",
+                    session_key=session_key,
+                )
+            raise RuntimeError(f"LLM 调用失败: {resp.error}")
+
+        except RuntimeError:
+            raise
+        except Exception as e:
+            # Gateway 不可用时降级(不应发生,但保持健壮)
+            duration = time.time() - start_time
+            error_tb = traceback.format_exc()
+            if task_id:
+                await self.emit_event(
+                    task_id=task_id,
+                    event_type="error",
+                    step=step or "llm_call",
+                    status="error",
+                    message=f"LLM Gateway 异常: {e}",
                     prompt=system_prompt[:500],
                     user_prompt=user_prompt[:500],
                     duration=duration,

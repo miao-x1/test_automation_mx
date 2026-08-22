@@ -187,11 +187,17 @@ class CollectorAgent(RoutedAgent):
     前端查看 AI 过程全部来自 CollectorAgent。
     """
 
+    # 已完成的 TaskResult 保留时间（秒），超过后自动清理
+    _RESULT_TTL_SECONDS = 300
+    # 清理检查间隔（每次清理的间隔秒数）
+    _CLEANUP_INTERVAL = 60
+
     def __init__(self) -> None:
         super().__init__("CollectorAgent - 全量事件收集器")
         self._results: Dict[str, TaskResult] = {}
         self._lock = asyncio.Lock()
         self._event_bus = get_event_bus()
+        self._last_cleanup: float = time.time()
 
     # ------------------------------------------------------------------ #
     #  消息处理（@message_handler）                                       #
@@ -242,6 +248,8 @@ class CollectorAgent(RoutedAgent):
                 message=f"任务{'完成' if result.status == 'completed' else '失败'}",
                 data=result.to_dict(),
             )
+            # 延迟清理已完成的旧结果
+            await self._maybe_cleanup()
 
     @message_handler
     async def handle_progress(self, message: ProgressMessage, ctx: MessageContext) -> None:
@@ -373,6 +381,31 @@ class CollectorAgent(RoutedAgent):
                 progress=1.0,
                 message=message.message or "任务完成",
             )
+            # 延迟清理已完成的旧结果
+            await self._maybe_cleanup()
+
+    # ------------------------------------------------------------------ #
+    #  内存清理                                                            #
+    # ------------------------------------------------------------------ #
+
+    async def _maybe_cleanup(self) -> None:
+        """定期清理已完成的旧结果，防止 _results 字典无限增长。"""
+        now = time.time()
+        if now - self._last_cleanup < self._CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
+
+        expired_keys = []
+        async with self._lock:
+            for tid, result in self._results.items():
+                if result.is_complete and result.completed_at:
+                    if now - result.completed_at > self._RESULT_TTL_SECONDS:
+                        expired_keys.append(tid)
+            for key in expired_keys:
+                del self._results[key]
+
+        if expired_keys:
+            logger.info(f"[Collector] Cleaned up {len(expired_keys)} expired task results")
 
     # ------------------------------------------------------------------ #
     #  数据库保存                                                          #

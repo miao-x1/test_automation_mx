@@ -1,0 +1,155 @@
+# ============================================================
+# Backend Deployment — FastAPI API 服务
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: test-automation
+  labels:
+    app: backend
+    component: api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        component: api
+    spec:
+      containers:
+        - name: backend
+          image: test-automation/backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: DB_HOST
+              value: "mysql"
+            - name: REDIS_HOST
+              value: "redis"
+            - name: MILVUS_HOST
+              value: "milvus"
+            - name: NEO4J_URI
+              value: "bolt://neo4j:7687"
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: reports
+              mountPath: /app/reports
+            - name: logs
+              mountPath: /app/logs
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 10
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: backend-uploads
+        - name: reports
+          persistentVolumeClaim:
+            claimName: backend-reports
+        - name: logs
+          persistentVolumeClaim:
+            claimName: backend-logs
+        - name: data
+          persistentVolumeClaim:
+            claimName: backend-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: test-automation
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+# PVC — 共享存储 (Backend 和 Worker 共用)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-uploads
+  namespace: test-automation
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-reports
+  namespace: test-automation
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-logs
+  namespace: test-automation
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-data
+  namespace: test-automation
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 5Gi

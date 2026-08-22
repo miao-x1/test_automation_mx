@@ -1,0 +1,239 @@
+# ============================================================
+# Milvus 全套 — etcd + MinIO + Milvus (向量数据库)
+# ============================================================
+
+# ---- etcd ----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: etcd
+  namespace: test-automation
+  labels:
+    app: etcd
+    component: milvus-dep
+spec:
+  serviceName: etcd
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd
+  template:
+    metadata:
+      labels:
+        app: etcd
+    spec:
+      containers:
+        - name: etcd
+          image: bitnamilegacy/etcd:3.5
+          env:
+            - name: ETCD_AUTO_COMPACTION_MODE
+              value: "revision"
+            - name: ETCD_AUTO_COMPACTION_RETENTION
+              value: "1000"
+            - name: ETCD_QUOTA_BACKEND_BYTES
+              value: "4294967296"
+            - name: ETCD_SNAPSHOT_COUNT
+              value: "50000"
+            - name: ALLOW_NONE_AUTHENTICATION
+              value: "yes"
+          ports:
+            - containerPort: 2379
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /bitnami/etcd
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1"
+          readinessProbe:
+            exec:
+              command: ["etcdctl", "endpoint", "health"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+  volumeClaimTemplates:
+    - metadata:
+        name: etcd-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  namespace: test-automation
+spec:
+  selector:
+    app: etcd
+  ports:
+    - port: 2379
+      targetPort: 2379
+  clusterIP: None
+
+---
+# ---- MinIO ----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: test-automation
+  labels:
+    app: minio
+    component: milvus-dep
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2023-03-24T21-41-23Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin"
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          volumeMounts:
+            - name: minio-data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+  volumeClaimTemplates:
+    - metadata:
+        name: minio-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: test-automation
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+
+---
+# ---- Milvus ----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: milvus
+  namespace: test-automation
+  labels:
+    app: milvus
+    component: vectordb
+spec:
+  serviceName: milvus
+  replicas: 1
+  selector:
+    matchLabels:
+      app: milvus
+  template:
+    metadata:
+      labels:
+        app: milvus
+        component: vectordb
+    spec:
+      containers:
+        - name: milvus
+          image: milvusdb/milvus:v2.4.4
+          args: ["milvus", "run", "standalone"]
+          env:
+            - name: ETCD_ENDPOINTS
+              value: "etcd:2379"
+            - name: MINIO_ADDRESS
+              value: "minio:9000"
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin"
+          ports:
+            - containerPort: 19530
+              name: grpc
+            - containerPort: 9091
+              name: health
+          volumeMounts:
+            - name: milvus-data
+              mountPath: /var/lib/milvus
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+            initialDelaySeconds: 120
+            periodSeconds: 60
+  volumeClaimTemplates:
+    - metadata:
+        name: milvus-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+  namespace: test-automation
+spec:
+  selector:
+    app: milvus
+  ports:
+    - name: grpc
+      port: 19530
+      targetPort: 19530
+    - name: health
+      port: 9091
+      targetPort: 9091

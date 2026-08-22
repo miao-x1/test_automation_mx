@@ -712,7 +712,29 @@ class KnowledgeCenterService:
         # Milvus 统计
         milvus_stats = {"available": False}
         try:
-            milvus_stats = await self._vector_store.get_stats()
+            raw_stats = await self._vector_store.get_stats()
+            # 将分类型字典 {chunk:{available,...}, page:{...}} 转换为前端期望的 {available, collections} 格式
+            collections = []
+            any_available = False
+            if isinstance(raw_stats, dict):
+                for entity_type, stat in raw_stats.items():
+                    if isinstance(stat, dict) and stat.get("available"):
+                        any_available = True
+                        collections.append({
+                            "entity_type": entity_type,
+                            "collection": stat.get("collection", ""),
+                            "row_count": stat.get("row_count", 0),
+                        })
+                    elif isinstance(stat, dict):
+                        collections.append({
+                            "entity_type": entity_type,
+                            "row_count": stat.get("row_count", 0),
+                            "available": False,
+                        })
+            milvus_stats = {
+                "available": any_available,
+                "collections": collections,
+            }
         except Exception as e:
             milvus_stats = {"available": False, "error": str(e)}
 

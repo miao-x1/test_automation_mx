@@ -310,7 +310,7 @@ alembic downgrade -1
 
 ```bash
 USE_SQLITE=True
-SQLITE_PATH=data/ui_automation.db
+SQLITE_PATH=data/test_automation.db
 ```
 
 ### 8.2 生产环境 (MySQL)
@@ -321,7 +321,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_password
-DB_NAME=ui_automation
+DB_NAME=test_automation
 ```
 
 ---

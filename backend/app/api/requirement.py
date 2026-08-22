@@ -103,19 +103,31 @@ async def classify_test_type(
     if not request.requirement.strip() and not request.urls and not request.images:
         raise HTTPException(status_code=400, detail="需求内容不能为空")
 
-    from app.runtime.agent_factory import AgentFactory
+    from app.runtime.enterprise import get_task_dispatcher, TaskRequest
 
     try:
-        agent = AgentFactory.create("test_type_classifier")
-        result = await agent.execute(
-            requirement=request.requirement,
-            urls=request.urls,
-            images=request.images,
-            script_content=request.script_content,
-            script_language=request.script_language,
-            swagger_content=request.swagger_content,
-        )
-        return {"code": 0, "message": "分类成功", "data": result}
+        # 通过 TaskDispatcher 提交 (企业级 Runtime)
+        dispatcher = get_task_dispatcher()
+        task_id = await dispatcher.submit(TaskRequest(
+            agent_name="test_type_classifier",
+            action="execute",
+            payload={
+                "requirement": request.requirement,
+                "urls": request.urls,
+                "images": request.images,
+                "script_content": request.script_content,
+                "script_language": request.script_language,
+                "swagger_content": request.swagger_content,
+            },
+            timeout_seconds=60,
+            max_retries=1,
+        ))
+        # 同步等待结果
+        result = await dispatcher.wait_for_result(task_id, timeout=60)
+        if result.status == "success":
+            return {"code": 0, "message": "分类成功", "data": result.result}
+        else:
+            raise Exception(result.error or "分类失败")
     except Exception as e:
         log.error(f"测试类型分类失败: {e}", exc_info=True)
         # 降级返回默认类型

@@ -1331,7 +1331,7 @@ class RequirementCenterService:
     # 查询
     # ================================================================
 
-    def get_full_session(self, db: Session, session_id: int, user_id: int) -> Dict:
+    def get_full_session(self, db: Session, session_id: int, user_id: int) -> Optional[Dict]:
         """获取完整会话信息（含文件、分析、评审、摘要、问题）"""
         session = self.get_session(db, session_id, user_id)
         if not session:

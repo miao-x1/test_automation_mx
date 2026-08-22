@@ -22,7 +22,7 @@ from app.models.user import User, UserRole, Workspace
 from app.core.auth import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
-    get_current_user, require_auth,
+    get_current_user, require_auth, require_admin,
     set_auth_cookies, clear_auth_cookies,
 )
 from app.schemas.response import Response

@@ -16,7 +16,7 @@
 import os
 import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -33,7 +33,7 @@ from app.core.logger import log
 router = APIRouter()
 
 # 系统配置文件路径
-_SETTINGS_FILE = os.path.join(os.getcwd(), "data", "system_settings.json")
+_SETTINGS_FILE = os.path.join(app_settings.DATA_DIR, "system_settings.json")
 
 
 def _load_settings() -> dict:
@@ -219,7 +219,7 @@ async def list_projects(
 
 # ==================== 环境配置 ====================
 
-_ENVIRONMENTS_FILE = os.path.join(os.getcwd(), "data", "environments.json")
+_ENVIRONMENTS_FILE = os.path.join(app_settings.DATA_DIR, "environments.json")
 
 
 def _load_environments() -> list:
@@ -330,7 +330,7 @@ async def update_settings(
 
 # ==================== 数据源管理 ====================
 
-_DATASOURCES_FILE = os.path.join(os.getcwd(), "data", "datasources.json")
+_DATASOURCES_FILE = os.path.join(app_settings.DATA_DIR, "datasources.json")
 
 
 def _load_datasources() -> list:
@@ -362,9 +362,9 @@ async def list_datasources(
                 "id": 1,
                 "name": "MySQL 主库",
                 "type": "mysql",
-                "host": getattr(app_settings, "MYSQL_HOST", "localhost"),
-                "port": getattr(app_settings, "MYSQL_PORT", 3306),
-                "database": getattr(app_settings, "MYSQL_DATABASE", "ui_automation"),
+                "host": getattr(app_settings, "DB_HOST", "localhost"),
+                "port": getattr(app_settings, "DB_PORT", 3306),
+                "database": getattr(app_settings, "DB_NAME", "test_automation"),
                 "status": "active",
             },
             {

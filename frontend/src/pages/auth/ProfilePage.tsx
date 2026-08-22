@@ -156,41 +156,41 @@ export default function ProfilePage() {
   const statCards = [
     {
       title: '我的任务',
-      value: stats?.tasks.total || 0,
+      value: stats?.tasks?.total || 0,
       icon: <FileTextOutlined />,
       route: '/manage',
       tags: [
-        { color: 'success', text: `完成 ${stats?.tasks.completed || 0}`, icon: <CheckCircleOutlined /> },
-        { color: 'error', text: `失败 ${stats?.tasks.failed || 0}`, icon: <CloseCircleOutlined /> },
+        { color: 'success', text: `完成 ${stats?.tasks?.completed || 0}`, icon: <CheckCircleOutlined /> },
+        { color: 'error', text: `失败 ${stats?.tasks?.failed || 0}`, icon: <CloseCircleOutlined /> },
       ],
     },
     {
       title: '我的需求',
-      value: stats?.requirements.total || 0,
+      value: stats?.requirements?.total || 0,
       icon: <BarChartOutlined />,
       route: '/requirement',
       tags: [],
     },
     {
       title: '我的执行',
-      value: stats?.executions.total || 0,
+      value: stats?.executions?.total || 0,
       icon: <ThunderboltOutlined />,
       route: '/executions',
       tags: [
         {
-          color: (stats?.executions.pass_rate || 0) >= 80 ? 'success' : 'error',
-          text: `通过率 ${stats?.executions.pass_rate || 0}%`,
+          color: (stats?.executions?.pass_rate || 0) >= 80 ? 'success' : 'error',
+          text: `通过率 ${stats?.executions?.pass_rate || 0}%`,
         },
       ],
     },
     {
       title: '知识库',
-      value: (stats?.knowledge.elements || 0) + (stats?.knowledge.scripts || 0),
+      value: (stats?.knowledge?.elements || 0) + (stats?.knowledge?.scripts || 0),
       icon: <DatabaseOutlined />,
       route: '/test-case',
       tags: [
-        { color: 'default' as const, text: `元素 ${stats?.knowledge.elements || 0}` },
-        { color: 'default' as const, text: `脚本 ${stats?.knowledge.scripts || 0}` },
+        { color: 'default' as const, text: `元素 ${stats?.knowledge?.elements || 0}` },
+        { color: 'default' as const, text: `脚本 ${stats?.knowledge?.scripts || 0}` },
       ],
     },
   ];

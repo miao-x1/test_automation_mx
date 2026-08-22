@@ -23,11 +23,27 @@ class ElementAgent(NewBaseAgent):
 
     def __init__(self, config=None, runtime=None, session_id=None, **kwargs):
         super().__init__(config=config, runtime=runtime, session_id=session_id, **kwargs)
+        # 优先从 ApplicationContainer 获取预初始化的 VisionService
+        self._vision_service = None
+        try:
+            from app.bootstrap import get_container
+            container = get_container()
+            if container.is_initialized:
+                vs = container.vision_service
+                self.api_key = vs.api_key
+                self.api_url = vs.api_url
+                self.model = vs.model
+                self._vision_service = vs
+                log.info(f"ElementAgent初始化完成 | 从Container获取Vision配置 | model: {self.model}")
+                return
+        except Exception:
+            pass
+        # 降级: 直接从 settings 读取 (兼容未初始化 Container 的场景)
         self.api_key = settings.QWEN_API_KEY
         self.api_url = settings.QWEN_API_URL or "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
         self.model = settings.QWEN_MODEL or "qwen-vl-plus"
         self.system_prompt = None
-        log.info(f"ElementAgent初始化完成 | model: {self.model}")
+        log.info(f"ElementAgent初始化完成 | 从settings读取配置 | model: {self.model}")
 
     def _encode_image(self, image_path: str) -> str:
         with open(image_path, "rb") as f:
@@ -111,53 +127,62 @@ clickable：该元素是否可点击/可交互
             }
         ]
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            log.info(f"调用千问Vision API | model: {self.model}")
-            response = await client.post(
-                self.api_url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "max_tokens": 4096,
-                    "temperature": 0.1
-                }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": 4096,
+            "temperature": 0.1
+        }
+
+        # 优先使用 Container 中预建的共享 httpx 客户端
+        if self._vision_service is not None:
+            log.info(f"调用千问Vision API | model: {self.model} | 使用共享HTTP客户端")
+            response = await self._vision_service.client.post(
+                self.api_url, headers=headers, json=payload
             )
+        else:
+            # 降级: 每次创建新客户端 (兼容未初始化 Container 的场景)
+            log.info(f"调用千问Vision API | model: {self.model} | 使用临时HTTP客户端")
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    self.api_url, headers=headers, json=payload
+                )
 
-            if response.status_code != 200:
-                error_text = response.text
-                log.error(f"千问API调用失败 | 状态码: {response.status_code}, 响应: {error_text[:300]}")
-                raise Exception(f"API调用失败: {response.status_code} - {error_text[:200]}")
+        if response.status_code != 200:
+            error_text = response.text
+            log.error(f"千问API调用失败 | 状态码: {response.status_code}, 响应: {error_text[:300]}")
+            raise Exception(f"API调用失败: {response.status_code} - {error_text[:200]}")
 
-            result = response.json()
+        result = response.json()
 
-            choices = result.get("choices")
-            if not choices or not isinstance(choices, list) or len(choices) == 0:
-                log.error(f"千问API返回异常 | 完整响应: {json.dumps(result, ensure_ascii=False)[:500]}")
-                raise Exception(f"API返回数据异常: 无choices字段或为空")
+        choices = result.get("choices")
+        if not choices or not isinstance(choices, list) or len(choices) == 0:
+            log.error(f"千问API返回异常 | 完整响应: {json.dumps(result, ensure_ascii=False)[:500]}")
+            raise Exception(f"API返回数据异常: 无choices字段或为空")
 
-            message = choices[0].get("message", {})
-            content = message.get("content")
-            if not content:
-                raise Exception("API返回内容为空")
+        message = choices[0].get("message", {})
+        content = message.get("content")
+        if not content:
+            raise Exception("API返回内容为空")
 
-            log.info(f"千问API返回: {content[:300]}...")
+        log.info(f"千问API返回: {content[:300]}...")
 
-            # 解析JSON（处理markdown代码块包裹）
-            content = content.strip()
-            if content.startswith("```"):
-                lines = content.split("\n")
-                end_idx = len(lines) - 1
-                for i in range(len(lines) - 1, 0, -1):
-                    if lines[i].strip().startswith("```"):
-                        end_idx = i
-                        break
-                content = "\n".join(lines[1:end_idx])
+        # 解析JSON（处理markdown代码块包裹）
+        content = content.strip()
+        if content.startswith("```"):
+            lines = content.split("\n")
+            end_idx = len(lines) - 1
+            for i in range(len(lines) - 1, 0, -1):
+                if lines[i].strip().startswith("```"):
+                    end_idx = i
+                    break
+            content = "\n".join(lines[1:end_idx])
 
-            return json.loads(content)
+        return json.loads(content)
 
     def execute(self, **kwargs) -> Any:
         """执行元素分析（BaseAgent抽象方法实现）

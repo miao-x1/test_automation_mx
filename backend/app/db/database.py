@@ -56,6 +56,16 @@ def get_db() -> Session:
 def init_db():
     """初始化数据库"""
     try:
+        # 确保所有模型已导入，否则 create_all 无法创建未注册的表
+        import importlib
+        import pkgutil
+        import app.models as models_pkg
+        for _, modname, _ in pkgutil.iter_modules(models_pkg.__path__):
+            if not modname.startswith("_"):
+                try:
+                    importlib.import_module(f"app.models.{modname}")
+                except Exception:
+                    pass
         # 创建所有表（Alembic 已迁移，此处仅作安全兜底）
         Base.metadata.create_all(bind=sync_engine)
         # 检查是否存在旧的 schema 差异（例如缺失的列），尝试修复常见缺失列

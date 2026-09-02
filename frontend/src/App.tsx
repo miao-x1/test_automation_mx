@@ -44,6 +44,7 @@ import TaskListPage from './pages/task/TaskListPage';
 import CreateTestPage from './pages/task/CreateTestPage';
 import AssetListPage from './pages/asset/AssetListPage';
 import ExecutionListPage from './pages/execution/ExecutionListPage';
+import ExecutionDetailPage from './pages/execution/ExecutionDetailPage';
 import ReportListPage from './pages/report/ReportListPage';
 import SystemIndexPage from './pages/system/SystemIndexPage';
 import AICapabilityPage from './pages/system/AICapabilityPage';
@@ -321,6 +322,7 @@ function MainLayout() {
               {/* ===== 4. 测试执行 ===== */}
               <Route path="/execution" element={<ExecutionListPage />} />
               <Route path="/execution/recent" element={<ExecutionListPage />} />
+              <Route path="/execution/detail/:id" element={<ExecutionDetailPage />} />
               <Route path="/execution/api" element={<ExecutionCenterPage />} />
               <Route path="/execution/web" element={<ExecutionCenterPage />} />
               <Route path="/execution/schedule" element={<WebSchedule />} />

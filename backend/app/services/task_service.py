@@ -5,6 +5,7 @@
 - 任务 CRUD（create/get/list/update/delete/rerun）
 - 任务分析流程（run_analysis 旧版 / run_unified_analysis 统一版）
 """
+import asyncio
 import json
 import hashlib
 import os
@@ -578,14 +579,19 @@ class TaskService:
                             db.commit()
 
                         yield json.dumps({"step": "Vision分析", "progress": 42, "message": "开始Vision分析截图..."}, ensure_ascii=False)
-                        async for msg in TaskService._run_vision(db, task_id, task):
-                            yield TaskService._remap_progress(msg, 40, 50)
-                            try:
-                                data = json.loads(msg)
-                                if data.get("step") == "result" and data.get("data"):
-                                    vision_elements = data["data"].get("elements", [])
-                            except Exception:
-                                pass
+                        vision_elements = []
+                        try:
+                            async for msg in TaskService._run_vision(db, task_id, task):
+                                yield TaskService._remap_progress(msg, 40, 50)
+                                try:
+                                    data = json.loads(msg)
+                                    if data.get("step") == "result" and data.get("data"):
+                                        vision_elements = data["data"].get("elements", [])
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            log.warning(f"Task {task_id} | Vision分析降级跳过: {e}")
+                            yield json.dumps({"step": "Vision降级", "progress": 48, "message": f"Vision不可用，使用DOM元素继续: {str(e)[:60]}"}, ensure_ascii=False)
 
                 # ===== 阶段2: 元素融合 (50-60%) =====
                 yield json.dumps({"step": "开始融合元素", "progress": 50, "message": "开始融合Vision和DOM元素..."}, ensure_ascii=False)
@@ -644,7 +650,7 @@ class TaskService:
                 script_agent = PlaywrightAgent()
                 script_content = ""
                 async for step_data in script_agent.generate_script(task_id, merged_elements, cases, final_page_url):
-                    yield TaskService._remap_progress(json.dumps(step_data, ensure_ascii=False), 75, 95)
+                    yield TaskService._remap_progress(json.dumps(step_data, ensure_ascii=False), 75, 88)
                     if step_data.get("step") == "result":
                         script_content = step_data.get("data", {}).get("script", "")
 
@@ -689,6 +695,100 @@ class TaskService:
                     )
                     db.add(case_asset)
 
+                # ===== 阶段5: 执行 Playwright 脚本 (88-99%) =====
+                execution_result = None
+                if script_content:
+                    yield json.dumps({"step": "执行测试", "progress": 88, "message": "正在执行 Playwright 测试脚本..."}, ensure_ascii=False)
+
+                    from app.agent.execution.execution_agent import ExecutionAgent
+                    from app.models.execution_record import ExecutionRecord, ExecutionStatus, ExecutionType
+                    from datetime import datetime
+
+                    # 创建执行记录
+                    exec_record = ExecutionRecord(
+                        task_id=task_id,
+                        execution_type=ExecutionType.WEB,
+                        status=ExecutionStatus.RUNNING,
+                        trigger_source="auto",
+                        start_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    db.add(exec_record)
+                    db.commit()
+                    db.refresh(exec_record)
+
+                    # 收集执行日志（同步回调 → 线程安全 list）
+                    exec_logs: list = []
+                    def _on_exec_log(log_data):
+                        exec_logs.append(log_data)
+
+                    exec_agent = ExecutionAgent()
+                    result_holder: dict = {}
+
+                    async def _run_execution():
+                        try:
+                            result_holder["result"] = await asyncio.to_thread(
+                                exec_agent.execute_script,
+                                script_content,
+                                task_id,
+                                exec_record.id,
+                                _on_exec_log,
+                            )
+                        except Exception as e:
+                            result_holder["error"] = e
+
+                    exec_task = asyncio.create_task(_run_execution())
+
+                    # 轮询：推送执行进度，避免 SSE 静默超时
+                    while not exec_task.done():
+                        while exec_logs:
+                            ld = exec_logs.pop(0)
+                            yield json.dumps({
+                                "step": "执行日志",
+                                "progress": 88,
+                                "message": ld.get("message", ""),
+                                "exec_step": ld.get("step", ""),
+                            }, ensure_ascii=False)
+                        yield json.dumps({"step": "执行中", "progress": 88, "message": "测试执行中..."}, ensure_ascii=False)
+                        await asyncio.sleep(1)
+
+                    # 推送剩余日志
+                    while exec_logs:
+                        ld = exec_logs.pop(0)
+                        yield json.dumps({
+                            "step": "执行日志",
+                            "progress": 88,
+                            "message": ld.get("message", ""),
+                            "exec_step": ld.get("step", ""),
+                        }, ensure_ascii=False)
+
+                    # 获取执行结果
+                    if "error" in result_holder:
+                        execution_result = {"status": "failed", "error_message": str(result_holder["error"]), "success_count": 0, "failed_count": 0}
+                    else:
+                        execution_result = result_holder.get("result", {})
+
+                    # 更新执行记录
+                    exec_record.status = ExecutionStatus.SUCCESS if execution_result.get("status") == "success" else ExecutionStatus.FAILED
+                    exec_record.end_time = execution_result.get("end_time")
+                    exec_record.duration = execution_result.get("duration")
+                    exec_record.success_count = execution_result.get("success_count", 0)
+                    exec_record.failed_count = execution_result.get("failed_count", 0)
+                    exec_record.error_message = execution_result.get("error_message")
+                    exec_record.log_content = execution_result.get("log_content")
+                    exec_record.report_path = execution_result.get("report_path")
+                    exec_record.screenshot_path = execution_result.get("screenshot_path")
+                    db.commit()
+
+                    yield json.dumps({
+                        "step": "执行完成",
+                        "progress": 99,
+                        "message": f"测试执行完成 | 通过: {execution_result.get('success_count', 0)}, 失败: {execution_result.get('failed_count', 0)}",
+                        "execution_status": execution_result.get("status"),
+                        "success_count": execution_result.get("success_count", 0),
+                        "failed_count": execution_result.get("failed_count", 0),
+                        "report_path": execution_result.get("report_path"),
+                    }, ensure_ascii=False)
+
                 task.status = TaskStatus.SUCCESS
                 db.commit()
                 log.info(f"统一任务完成 | ID: {task_id}")
@@ -700,6 +800,10 @@ class TaskService:
                     "test_script": script_content,
                     "element_count": len(merged_elements),
                     "case_count": len(cases),
+                    "execution_status": execution_result.get("status") if execution_result else None,
+                    "execution_success": execution_result.get("success_count", 0) if execution_result else 0,
+                    "execution_failed": execution_result.get("failed_count", 0) if execution_result else 0,
+                    "report_path": execution_result.get("report_path") if execution_result else None,
                 }, ensure_ascii=False)
 
             except Exception as e:

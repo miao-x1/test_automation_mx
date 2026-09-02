@@ -151,13 +151,17 @@ class ExecutionQueue:
         # 保存全部结果
         ResultWriter.save_all_results(execution_id, case_results, total_ms)
 
-        # 生成报告
-        report = ReportGenerator.generate(execution_id)
+        # 生成报告（持久化到文件，更新 report_path）
+        report_path = ReportGenerator.generate_and_save(execution_id, format="html")
+
+        _passed = sum(1 for r in case_results if r.get("status") == "PASS")
+        _failed = len(case_results) - _passed
 
         log.info(
             f"ExecutionQueue | Worker-{worker_id} | 执行完成 | "
             f"execution_id={execution_id}, "
             f"total={len(case_results)}, "
-            f"passed={report.get('passed', 0)}, "
-            f"failed={report.get('failed', 0)}"
+            f"passed={_passed}, "
+            f"failed={_failed}, "
+            f"report={'saved' if report_path else 'failed'}"
         )

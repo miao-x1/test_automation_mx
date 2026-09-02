@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Input, Button, Tabs, Upload, message, Typography, Timeline, Tag, Table, Empty, Segmented, Tooltip } from 'antd';
+import { Card, Row, Col, Input, Button, Tabs, Upload, message, Typography, Timeline, Tag, Table, Empty, Segmented, Tooltip, Alert } from 'antd';
 import {
   RocketOutlined, UploadOutlined, FileTextOutlined, PictureOutlined, LinkOutlined,
   ThunderboltOutlined, CheckCircleOutlined, LoadingOutlined,
@@ -44,15 +46,58 @@ const TYPE_FRAMEWORK: Record<string, string> = {
   performance: 'JMeter',
 };
 
+// ===== 创建任务表单草稿（持久化，切换页面不丢输入） =====
+interface DraftState {
+  taskName: string;
+  requirement: string;
+  urlAddress: string;
+  imageServerPath: string;
+  userTestType: TestType | null;
+  inputMode: InputMode;
+  setTaskName: (v: string) => void;
+  setRequirement: (v: string) => void;
+  setUrlAddress: (v: string) => void;
+  setImageServerPath: (v: string) => void;
+  setUserTestType: (v: TestType | null) => void;
+  setInputMode: (v: InputMode) => void;
+  clear: () => void;
+}
+
+const useCreateTestDraft = create<DraftState>()(
+  persist(
+    (set) => ({
+      taskName: '',
+      requirement: '',
+      urlAddress: '',
+      imageServerPath: '',
+      userTestType: null,
+      inputMode: 'text',
+      setTaskName: (v) => set({ taskName: v }),
+      setRequirement: (v) => set({ requirement: v }),
+      setUrlAddress: (v) => set({ urlAddress: v }),
+      setImageServerPath: (v) => set({ imageServerPath: v }),
+      setUserTestType: (v) => set({ userTestType: v }),
+      setInputMode: (v) => set({ inputMode: v }),
+      clear: () => set({ taskName: '', requirement: '', urlAddress: '', imageServerPath: '', userTestType: null }),
+    }),
+    { name: 'create-test-draft' }
+  )
+);
+
 export default function CreateTestPage() {
   const navigate = useNavigate();
-  const [taskName, setTaskName] = useState('');
-  const [inputMode, setInputMode] = useState<InputMode>('text');
-  const [requirement, setRequirement] = useState('');
+  // 持久化草稿（切换页面不丢输入）
+  const {
+    taskName, setTaskName,
+    inputMode, setInputMode,
+    requirement, setRequirement,
+    imageServerPath, setImageServerPath,
+    urlAddress, setUrlAddress,
+    userTestType, setUserTestType,
+  } = useCreateTestDraft();
+  // 非持久化状态（图片预览/文件/分析过程）
   const [imageUrl, setImageUrl] = useState('');
-  const [imageServerPath, setImageServerPath] = useState('');
   const [docFile, setDocFile] = useState<any>(null);
-  const [urlAddress, setUrlAddress] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>([]);
   const [taskId, setTaskId] = useState<number | null>(null);
@@ -63,8 +108,6 @@ export default function CreateTestPage() {
   const [aiConfidence, setAiConfidence] = useState(0);
   const [aiReason, setAiReason] = useState('');
   const [classifying, setClassifying] = useState(false);
-  // 用户可调整的类型（默认跟随AI，用户可修改）
-  const [userTestType, setUserTestType] = useState<TestType | null>(null);
   const classifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── AI 自动判断测试类型（防抖触发）──
@@ -145,55 +188,99 @@ export default function CreateTestPage() {
     ];
     setAnalysisSteps([...steps]);
 
+    // 根据 SSE 消息推进步骤状态
+    const updateStep = (index: number, status: AnalysisStep['status'], description?: string) => {
+      if (index < 0 || index >= steps.length) return;
+      steps[index] = { ...steps[index], status, ...(description ? { description } : {}) };
+      setAnalysisSteps([...steps]);
+    };
+
+    // SSE step_name（英文）→ 步骤索引映射（适配后端 orchestrator 实际消息格式）
+    const mapStep = (s: string): number => {
+      if (s === 'parse_requirement') return 0;
+      if (s === 'classify_type') return 1;
+      if (['analyze_image', 'rag_retrieve', 'discover_relations', 'graph_reason'].includes(s)) return 2;
+      if (['generate_cases', 'review_cases'].includes(s)) return 3;
+      if (s === 'generate_script') return 4;
+      return -1;
+    };
+
     try {
-      // 提交需求
+      // 1. 提交需求，创建任务
       const res: any = await request.post('/requirement/create', reqData);
       const data = res.data || res;
-      if (data?.task_id || data?.id) {
-        const newTaskId = data.task_id || data.id;
-        setTaskId(newTaskId);
-
-        // 更新步骤：需求解析完成
-        steps[0] = { title: '需求解析', status: 'finish', description: '需求已解析完成' };
-        steps[1] = {
-          title: '测试类型识别',
-          status: 'finish',
-          description: userTestType ? `${TEST_TYPE_TAGS[userTestType]?.label || userTestType} 测试` : '自动识别',
-        };
-        steps[2] = { title: '页面识别', status: 'process', description: '正在识别页面元素...' };
-        setAnalysisSteps([...steps]);
-
-        // 调用分析 API
-        try {
-          const analyzeRes: any = await request.post(`/requirement/analyze/${newTaskId}`);
-          const aData = analyzeRes.data || analyzeRes;
-
-          steps[2] = { title: '页面识别', status: 'finish', description: '页面元素识别完成' };
-          steps[3] = {
-            title: '用例生成',
-            status: 'finish',
-            description: aData?.cases
-              ? `已生成 ${Array.isArray(aData.cases) ? aData.cases.length : 0} 条用例`
-              : '用例生成完成',
-          };
-          const framework = userTestType ? TYPE_FRAMEWORK[userTestType] : 'Playwright';
-          steps[4] = { title: '脚本生成', status: 'finish', description: `${framework} 脚本已生成` };
-          setAnalysisSteps([...steps]);
-
-          setResult(aData);
-          message.success('AI 分析完成！');
-        } catch (err) {
-          steps[2] = { title: '页面识别', status: 'error', description: '分析过程出现错误' };
-          setAnalysisSteps([...steps]);
-          message.success('需求已提交，正在后台分析中');
-        }
-      } else {
+      if (!(data?.task_id || data?.id)) {
         message.error(data?.message || '提交失败');
+        updateStep(0, 'error', '提交失败');
+        return;
       }
-    } catch (err) {
-      message.error('请求失败，请重试');
-      steps[0] = { title: '需求解析', status: 'error', description: '提交失败' };
-      setAnalysisSteps([...steps]);
+      const newTaskId = data.task_id || data.id;
+      setTaskId(newTaskId);
+
+      // 2. 用 fetch 消费 SSE 流，真实推进进度条
+      const response = await fetch(`/api/requirement/analyze/${newTaskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(`分析请求失败 (${response.status})`);
+      }
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error('无法读取响应流');
+      let buffer = '';
+      const collectedCases: any[] = [];
+      let scriptOutput: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const msg = JSON.parse(line.slice(5).trim());
+            const evt: string = msg.event || '';
+            const sname: string = msg.step_name || '';
+            const idx = mapStep(sname);
+            if (evt === 'step_start' && idx >= 0) {
+              updateStep(idx, 'process', msg.data?.description || sname);
+            } else if (evt === 'step_success' && idx >= 0) {
+              updateStep(idx, 'finish', msg.data?.description || '完成');
+              // 收集用例
+              if (sname === 'generate_cases' && msg.data?.output?.cases) {
+                const cs = msg.data.output.cases;
+                if (Array.isArray(cs)) collectedCases.push(...cs);
+              }
+              // 收集脚本
+              if (sname === 'generate_script' && msg.data?.output) {
+                scriptOutput = msg.data.output;
+              }
+            } else if (evt === 'step_skipped' && idx >= 0) {
+              updateStep(idx, 'finish', '已跳过');
+            }
+            if (evt === 'flow_failed' || msg.error) {
+              updateStep(idx >= 0 ? idx : 4, 'error', msg.error || '分析失败');
+            }
+          } catch { /* 忽略解析错误 */ }
+        }
+      }
+
+      // 流结束后，未完成的步骤标记完成
+      steps.forEach((s, i) => { if (s.status === 'process' || s.status === 'wait') updateStep(i, 'finish'); });
+      updateStep(1, 'finish', userTestType ? `${TEST_TYPE_TAGS[userTestType]?.label || userTestType} 测试` : '自动识别');
+      if (collectedCases.length > 0) updateStep(3, 'finish', `已生成 ${collectedCases.length} 条用例`);
+      const framework = userTestType ? TYPE_FRAMEWORK[userTestType] : 'Playwright';
+      updateStep(4, 'finish', scriptOutput ? `${framework} 脚本已生成` : '脚本生成完成');
+
+      setResult({ cases: collectedCases, script: scriptOutput });
+      message.success('AI 分析完成！');
+    } catch (err: any) {
+      message.error(err?.message || '请求失败，请重试');
+      updateStep(0, 'error', err?.message || '提交失败');
     } finally {
       setAnalyzing(false);
     }
@@ -441,7 +528,7 @@ export default function CreateTestPage() {
             )}
             {taskId && (
               <div style={{ marginTop: 16, textAlign: 'center' }}>
-                <Button type="link" onClick={() => navigate(`/task/${taskId}`)}>
+                <Button type="link" onClick={() => navigate(`/task/${taskId}/detail`)}>
                   查看任务详情 →
                 </Button>
               </div>
@@ -496,10 +583,30 @@ export default function CreateTestPage() {
                   ]}
                 />
               </Col>
+            ) : result.script?.script_content ? (
+              <Col span={24}>
+                {result.script?.degradation_info && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={result.script.degradation_info.message || 'LLM 生成失败，已使用规则模板'}
+                    description="当前未配置 AI 模型 API Key，无法生成完整用例与脚本。请在 backend/.env 配置 QWEN_API_KEY 或 DEEPSEEK_API_KEY 后重试。"
+                    style={{ marginBottom: 12 }}
+                  />
+                )}
+                <div style={{ marginBottom: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    生成的脚本（{result.script.script_format || 'playwright'}）：
+                  </Text>
+                </div>
+                <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 6, maxHeight: 320, overflow: 'auto', fontSize: 12 }}>
+                  {result.script.script_content}
+                </pre>
+              </Col>
             ) : (
               <Col span={24}>
                 <Empty
-                  description="AI 正在生成中，请稍后查看任务详情"
+                  description="未生成用例，请检查 AI 模型 API Key 配置后重试"
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               </Col>

@@ -123,7 +123,7 @@ export default function AssetCenterAnalyzePage() {
     try {
       const res = await agentHealthCheck();
       // 解包 {code, data: {status, agents}} 信封格式
-      setHealth(res?.data ?? res);
+      setHealth((res as any)?.data ?? res);
     } catch (e: unknown) {
       const err = e as { message?: string };
       message.error(err?.message || 'Agent 服务健康检查失败');
@@ -158,7 +158,7 @@ export default function AssetCenterAnalyzePage() {
 
       const res = await analyzeRequirement(input);
       // 解包 {code, data: {...}} 信封格式
-      const result = res?.data ?? res;
+      const result = (res as any)?.data ?? res;
       setResult(result);
 
       if (result.status === 'success') {

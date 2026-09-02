@@ -31,15 +31,40 @@ logger = logging.getLogger(__name__)
 
 
 def _get_llm_config() -> Dict[str, Any]:
-    """获取 LLM 配置"""
+    """获取 LLM 配置（自动选择可用 provider：QWEN 优先，降级 DeepSeek）"""
+    # 优先 QWEN
+    if settings.QWEN_API_KEY:
+        return {
+            "api_key": settings.QWEN_API_KEY,
+            "api_url": getattr(settings, "QWEN_API_URL",
+                               "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
+            "model": getattr(settings, "QWEN_MODEL", "qwen-plus"),
+            "temperature": getattr(settings, "LLM_TEMPERATURE", 0.3),
+            "max_tokens": getattr(settings, "LLM_MAX_TOKENS", 8192),
+            "timeout": getattr(settings, "LLM_TIMEOUT", 120),
+        }
+
+    # 降级 DeepSeek（OpenAI 兼容接口）
+    deepseek_key = getattr(settings, "DEEPSEEK_API_KEY", "")
+    if deepseek_key:
+        return {
+            "api_key": deepseek_key,
+            "api_url": getattr(settings, "DEEPSEEK_API_URL",
+                               "https://api.deepseek.com/v1/chat/completions"),
+            "model": "deepseek-chat",
+            "temperature": getattr(settings, "LLM_TEMPERATURE", 0.3),
+            "max_tokens": getattr(settings, "LLM_MAX_TOKENS", 8192),
+            "timeout": getattr(settings, "LLM_TIMEOUT", 120),
+        }
+
+    # 均未配置
     return {
-        "api_key": settings.QWEN_API_KEY,
-        "api_url": getattr(settings, "QWEN_API_URL",
-                           "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
-        "model": getattr(settings, "QWEN_MODEL", "qwen-plus"),
-        "temperature": getattr(settings, "LLM_TEMPERATURE", 0.3),
-        "max_tokens": getattr(settings, "LLM_MAX_TOKENS", 8192),
-        "timeout": getattr(settings, "LLM_TIMEOUT", 120),
+        "api_key": "",
+        "api_url": "",
+        "model": "",
+        "temperature": 0.3,
+        "max_tokens": 8192,
+        "timeout": 120,
     }
 
 
@@ -71,34 +96,54 @@ def call_llm(
 
     api_key = config["api_key"]
     if not api_key:
-        raise RuntimeError("未配置 QWEN_API_KEY")
+        raise RuntimeError("未配置 LLM API Key（请配置 QWEN_API_KEY 或 DEEPSEEK_API_KEY）")
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    body = {
+    # 构建候选 provider 列表：主 provider + fallback
+    providers = []
+    # 主 provider
+    providers.append({
+        "api_key": config["api_key"],
+        "api_url": config["api_url"],
         "model": model or config["model"],
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": temperature if temperature is not None else config["temperature"],
-        "max_tokens": max_tokens or config["max_tokens"],
-    }
+    })
+    # DeepSeek fallback（如果主 provider 不是 DeepSeek）
+    deepseek_key = getattr(settings, "DEEPSEEK_API_KEY", "")
+    deepseek_url = getattr(settings, "DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
+    if deepseek_key and config["api_url"] != deepseek_url:
+        providers.append({
+            "api_key": deepseek_key,
+            "api_url": deepseek_url,
+            "model": "deepseek-chat",
+        })
 
-    try:
-        with httpx.Client(timeout=timeout or config["timeout"]) as client:
-            resp = client.post(config["api_url"], headers=headers, json=body)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    except httpx.TimeoutException:
-        logger.error(f"LLM 调用超时 | timeout={timeout or config['timeout']}s")
-        raise RuntimeError(f"LLM 调用超时")
-    except Exception as e:
-        logger.error(f"LLM 调用失败: {e}")
-        raise RuntimeError(f"LLM 调用失败: {e}")
+    last_error = None
+    for provider in providers:
+        headers = {
+            "Authorization": f"Bearer {provider['api_key']}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "model": provider["model"],
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature if temperature is not None else config["temperature"],
+            "max_tokens": max_tokens or config["max_tokens"],
+        }
+
+        try:
+            with httpx.Client(timeout=timeout or config["timeout"]) as client:
+                resp = client.post(provider["api_url"], headers=headers, json=body)
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except Exception as e:
+            last_error = e
+            logger.warning(f"LLM 调用失败 (provider={provider['model']}): {e}")
+            continue
+
+    raise RuntimeError(f"LLM 调用失败（所有 provider 均不可用）: {last_error}")
 
 
 def call_llm_json(

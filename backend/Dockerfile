@@ -54,9 +54,9 @@ COPY . .
 # 创建必要目录
 RUN mkdir -p uploads logs reports data
 
-# 复制启动脚本
+# 复制启动脚本（修复 Windows CRLF 行尾问题）
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # 暴露端口
 EXPOSE 8000

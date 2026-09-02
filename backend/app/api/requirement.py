@@ -25,17 +25,79 @@ from fastapi.responses import FileResponse
 router = APIRouter()
 
 
-async def sse_wrapper(orchestrator_events):
+async def sse_wrapper(orchestrator_events, task_id: Optional[int] = None):
     """将 Orchestrator 的 dict 事件转换为 SSE 格式
 
     Orchestrator.execute() 产出 plain dict，EventSourceResponse 需要
     {event, data} 形式，这里做一次包装。
+
+    当传入 task_id 时，在收到 flow_success / flow_failed 终止事件后，
+    将生成结果（intent / 用例 / 脚本 / 状态 / 错误）持久化到 RequirementTask，
+    解决"分析完成后刷新页面看不到结果"的问题。
     """
     async for event in orchestrator_events:
+        try:
+            evt_name = event.get("event", "")
+            if task_id and evt_name in ("flow_success", "flow_failed"):
+                _persist_requirement_result(task_id, event)
+        except Exception as e:
+            log.warning(f"持久化需求分析结果失败 | task_id={task_id} | {e}")
         yield {
             "event": event.get("event", "message"),
             "data": json.dumps(event, ensure_ascii=False, default=str),
         }
+
+
+def _persist_requirement_result(task_id: int, event: dict) -> None:
+    """将 orchestrator 终止事件的结果写入 RequirementTask"""
+    evt_name = event.get("event", "")
+    # flow_success 事件结构：event["data"]["result"]["outputs"][step]
+    data_field = event.get("data") or {}
+    result = data_field.get("result") or {} if isinstance(data_field, dict) else {}
+    outputs = result.get("outputs") or {} if isinstance(result, dict) else {}
+
+    parse_req = outputs.get("parse_requirement") or {}
+    gen_cases = outputs.get("generate_cases") or {}
+    gen_script = outputs.get("generate_script") or {}
+
+    db = SessionLocal()
+    try:
+        task = db.query(RequirementTask).filter(RequirementTask.id == task_id).first()
+        if not task:
+            return
+
+        if evt_name == "flow_success":
+            task.status = RequirementStatus.COMPLETED
+            task.error_message = None
+            # intent
+            intent = parse_req.get("intent") if isinstance(parse_req, dict) else None
+            if intent:
+                task.intent = str(intent)
+            # 用例
+            cases_data = gen_cases.get("cases") if isinstance(gen_cases, dict) else None
+            if cases_data:
+                task.generated_case = json.dumps(cases_data, ensure_ascii=False, default=str)
+            # 脚本
+            script_content = gen_script.get("script_content") if isinstance(gen_script, dict) else None
+            if script_content:
+                task.generated_script = script_content
+            yaml_content = gen_script.get("script_yaml") if isinstance(gen_script, dict) else None
+            if yaml_content:
+                task.generated_yaml = yaml_content
+            # 脚本来源
+            reuse_info = gen_script.get("reuse_info") if isinstance(gen_script, dict) else None
+            task.script_source = "reused" if reuse_info else "generated"
+        elif evt_name == "flow_failed":
+            task.status = RequirementStatus.FAILED
+            task.error_message = (event.get("error") or result.get("error") or "流程执行失败")[:2000]
+
+        db.commit()
+        log.info(f"需求任务结果已持久化 | task_id={task_id} | status={task.status}")
+    except Exception as e:
+        db.rollback()
+        log.warning(f"持久化需求分析结果异常 | task_id={task_id} | {e}")
+    finally:
+        db.close()
 
 
 class CreateRequest(BaseModel):
@@ -272,7 +334,8 @@ async def analyze_requirement(task_id: int, request: AnalyzeWithFeedbackRequest 
                 "unified_test_flow",
                 payload,
                 task_id=task_id,
-            )
+            ),
+            task_id=task_id,
         )
     )
 

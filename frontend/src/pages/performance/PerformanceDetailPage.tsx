@@ -184,7 +184,7 @@ export default function PerformanceDetailPage() {
     try {
       const res = await getTask(taskId);
       // 解包 {code, message, data} 信封格式
-      setTask(res?.data ?? res);
+      setTask((res as any)?.data ?? res);
     } catch (e: unknown) {
       const err = e as { message?: string };
       message.error(err?.message || '加载任务详情失败');

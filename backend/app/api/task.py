@@ -134,27 +134,6 @@ async def get_image(
     )
 
 
-@router.get("/{task_id}", summary="获取任务详情")
-async def get_task(
-    task_id: int,
-    user: User = Depends(require_auth),
-    db: Session = Depends(get_db)
-):
-    """获取任务详情"""
-    task = TaskService.get_task(db, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    # 数据隔离：只能查看自己的任务
-    if task.user_id is not None and task.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问该任务")
-
-    return Response(
-        code=200,
-        message="success",
-        data=TaskResponse.model_validate(task)
-    )
-
-
 @router.get("/", summary="获取任务列表")
 async def get_task_list(
     skip: int = 0,
@@ -234,6 +213,27 @@ async def search_tasks(
             total=total,
             items=[TaskResponse.model_validate(t) for t in items]
         )
+    )
+
+
+@router.get("/{task_id}", summary="获取任务详情")
+async def get_task(
+    task_id: int,
+    user: User = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """获取任务详情"""
+    task = TaskService.get_task(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    # 数据隔离：只能查看自己的任务
+    if task.user_id is not None and task.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权访问该任务")
+
+    return Response(
+        code=200,
+        message="success",
+        data=TaskResponse.model_validate(task)
     )
 
 

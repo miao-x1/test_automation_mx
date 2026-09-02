@@ -157,7 +157,7 @@ export default function ReportListPage() {
               render: (_: any, r: any) => (
                 <Space>
                   <Tooltip title="查看详情">
-                    <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => navigate(`/report/${r.id}`)}>详情</Button>
+                    <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => navigate(`/execution/detail/${r.id}`)}>详情</Button>
                   </Tooltip>
                   <Tooltip title="查看HTML报告">
                     <Button size="small" icon={<FileTextOutlined />} onClick={() => window.open(`/api/executions/${r.id}/report?format=html`, '_blank')} />

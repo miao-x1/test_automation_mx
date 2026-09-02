@@ -47,14 +47,31 @@ class PlaywrightTool(BaseTool):
             tmp.close()
             script_path = tmp.name
 
+        # 检测 pytest-playwright 插件是否可用
+        use_pytest = False
         try:
-            cmd = [
-                "python", "-m", "pytest", script_path,
-                "--browser", browser,
-                "--headed" if not headless else "",
-                "-v",
-            ]
-            cmd = [c for c in cmd if c]  # 移除空字符串
+            import pytest_playwright  # noqa: F401
+            use_pytest = True
+        except ImportError:
+            use_pytest = False
+
+        try:
+            if use_pytest:
+                # 有 pytest-playwright 插件，用 pytest --browser 执行
+                cmd = [
+                    "python", "-m", "pytest", script_path,
+                    "--browser", browser,
+                    "--headed" if not headless else "",
+                    "-v",
+                ]
+                cmd = [c for c in cmd if c]
+            else:
+                # 无 pytest-playwright，生成 wrapper 用 playwright 直接执行
+                runner_path = script_path.replace(".py", "_runner.py")
+                runner_code = self._build_runner(script_path, browser, headless)
+                with open(runner_path, "w", encoding="utf-8") as f:
+                    f.write(runner_code)
+                cmd = ["python", runner_path]
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -68,6 +85,11 @@ class PlaywrightTool(BaseTool):
 
             output = stdout.decode("utf-8", errors="replace")
             error_output = stderr.decode("utf-8", errors="replace")
+            combined = output + ("\n" + error_output if error_output else "")
+
+            # 解析 runner 输出统计（结果行格式："PASS test_xxx" / "FAIL test_xxx" / "ERROR test_xxx"）
+            passed = combined.count("PASS test_")
+            failed = combined.count("FAIL test_") + combined.count("ERROR test_")
 
             return ToolResult(
                 success=proc.returncode == 0,
@@ -76,6 +98,8 @@ class PlaywrightTool(BaseTool):
                     "stdout": output[-2000:] if len(output) > 2000 else output,
                     "stderr": error_output[-2000:] if len(error_output) > 2000 else error_output,
                     "script_path": script_path,
+                    "passed": passed,
+                    "failed": failed,
                 },
                 error=error_output if proc.returncode != 0 else "",
             )
@@ -92,6 +116,60 @@ class PlaywrightTool(BaseTool):
                     os.unlink(script_path)
                 except Exception:
                     pass
+            runner_path = (script_path or "").replace(".py", "_runner.py")
+            if os.path.exists(runner_path):
+                try:
+                    os.unlink(runner_path)
+                except Exception:
+                    pass
+
+    def _build_runner(self, script_path: str, browser: str, headless: bool) -> str:
+        """生成独立运行脚本（不依赖 pytest-playwright，用 playwright sync_api 直接执行）"""
+        return f'''import sys, traceback
+from playwright.sync_api import sync_playwright
+
+with open(r"{script_path}", encoding="utf-8") as f:
+    _user_code = f.read()
+
+ns = {{"__name__": "_user_test"}}
+try:
+    exec(_user_code, ns)
+except Exception as e:
+    print(f"SCRIPT ERROR: {{e}}")
+    traceback.print_exc()
+    sys.exit(2)
+
+results = []
+try:
+    with sync_playwright() as p:
+        launch_fn = getattr(p, "{browser}", p.chromium)
+        br = launch_fn.launch(headless={headless})
+        page = br.new_page()
+        for name, obj in list(ns.items()):
+            if isinstance(obj, type) and name.startswith("Test"):
+                instance = obj()
+                for method in sorted(dir(instance)):
+                    if method.startswith("test_"):
+                        try:
+                            getattr(instance, method)(page)
+                            results.append((method, "PASS", ""))
+                        except AssertionError as e:
+                            results.append((method, "FAIL", str(e) or "assert failed"))
+                        except Exception as e:
+                            results.append((method, "ERROR", f"{{type(e).__name__}}: {{e}}"))
+        br.close()
+except Exception as e:
+    print(f"BROWSER ERROR: {{e}}")
+    traceback.print_exc()
+    sys.exit(3)
+
+passed = sum(1 for _, s, _ in results if s == "PASS")
+failed = sum(1 for _, s, _ in results if s != "PASS")
+for m, s, e in results:
+    print(f"{{s}} {{m}}" + (f" - {{e}}" if e else ""))
+print(f"\\n=== {{passed}} passed, {{failed}} failed ===")
+sys.exit(1 if failed > 0 else 0)
+'''
 
     async def _validate_script(self, ctx: ToolContext, **kwargs) -> ToolResult:
         script_content = kwargs.get("script_content", "")

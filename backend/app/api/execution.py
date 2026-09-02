@@ -114,27 +114,26 @@ async def run_asset(
     if not asset.executable:
         raise HTTPException(status_code=400, detail="该资产不可执行（缺少步骤或断言）")
 
-    # 3. 获取执行数据
-    exec_data = asset.to_execution_json()
-    if not exec_data:
-        raise HTTPException(status_code=400, detail="无法生成执行数据")
-
-    # 4. 创建执行记录
-    execution_type = _map_asset_type_to_execution_type(asset.asset_type)
-    record = ExecutionRecord(
-        asset_id=asset.id,
-        execution_type=execution_type,
-        status=ExecutionStatus.WAITING,
-        trigger_source="manual",
-        user_id=user.id,
-        created_by=user.id,
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-
-    # 5. 执行
+    # 3. 执行
     if req.async_exec:
+        # 异步：需要 exec_data 提交到队列
+        exec_data = asset.to_execution_json()
+        if not exec_data:
+            raise HTTPException(status_code=400, detail="无法生成执行数据")
+
+        execution_type = _map_asset_type_to_execution_type(asset.asset_type)
+        record = ExecutionRecord(
+            asset_id=asset.id,
+            execution_type=execution_type,
+            status=ExecutionStatus.WAITING,
+            trigger_source="manual",
+            user_id=user.id,
+            created_by=user.id,
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+
         # 异步：提交到执行队列
         try:
             queue = get_execution_queue()
@@ -163,7 +162,7 @@ async def run_asset(
             },
         )
     else:
-        # 同步：直接执行
+        # 同步：直接执行（dispatch_batch 会创建自己的执行记录）
         try:
             result = await ExecutionDispatcher.dispatch_batch(
                 asset_ids=[asset.id],
@@ -172,34 +171,17 @@ async def run_asset(
                 base_url=req.base_url,
             )
 
-            # 更新执行记录
-            summary = result.get("summary", {})
-            record.status = ExecutionStatus.SUCCESS if summary.get("fail", 0) == 0 and summary.get("error", 0) == 0 else ExecutionStatus.FAILED
-            record.success_count = summary.get("pass", 0)
-            record.failed_count = summary.get("fail", 0) + summary.get("error", 0)
-            record.duration = sum(r.get("duration_ms", 0) for r in result.get("results", [])) / 1000.0
-            record.log_content = "\n".join(
-                f"[{r.get('status', '?')}] {r.get('title', '')} ({r.get('duration_ms', 0)}ms)"
-                + (f" - {r['error']}" if r.get("error") else "")
-                for r in result.get("results", [])
-            )
-            db.commit()
-            db.refresh(record)
-
             return Response(
                 code=200,
                 message="执行完成",
                 data={
-                    "execution_id": record.id,
-                    "status": record.status,
+                    "execution_id": result.get("execution_id"),
+                    "status": result.get("status"),
                     "asset_id": asset.id,
                     "result": result,
                 },
             )
         except Exception as e:
-            record.status = ExecutionStatus.FAILED
-            record.error_message = str(e)
-            db.commit()
             raise HTTPException(status_code=500, detail=f"执行失败: {e}")
 
 

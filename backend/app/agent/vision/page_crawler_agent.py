@@ -10,8 +10,6 @@ PageCrawlerAgent - 使用Playwright抓取页面真实DOM元素
 定位器优先级：id > data-testid > aria-label > role > name > css_selector > xpath
 """
 import asyncio
-import concurrent.futures
-import threading
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Dict, Any, List
@@ -20,11 +18,16 @@ from app.agent.core.types import AgentCapability
 from app.core.config import settings
 from app.core.logger import log
 
-# 模块级线程池，避免每次爬取创建/销毁 ThreadPoolExecutor
-_CRAWLER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-# 限制同时打开的 Playwright 浏览器实例数量，防止进程泄漏导致资源耗尽
-# 这个 Semaphore 在线程池中生效（使用 threading.Semaphore）
-_PLAYWRIGHT_SEMAPHORE = threading.Semaphore(2)
+# 限制同时打开的 Playwright 浏览器实例数量，防止资源耗尽
+_PLAYWRIGHT_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    """延迟创建 asyncio.Semaphore（需在事件循环内）"""
+    global _PLAYWRIGHT_SEMAPHORE
+    if _PLAYWRIGHT_SEMAPHORE is None:
+        _PLAYWRIGHT_SEMAPHORE = asyncio.Semaphore(2)
+    return _PLAYWRIGHT_SEMAPHORE
 
 
 class PageCrawlerAgent(NewBaseAgent):
@@ -52,118 +55,94 @@ class PageCrawlerAgent(NewBaseAgent):
         """抓取页面元素（SSE事件流）"""
         yield {"step": "开始抓取页面", "progress": 5, "message": f"正在打开页面: {url}"}
 
-        # 在独立线程中运行同步Playwright，避免Windows asyncio子进程问题
         try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(_CRAWLER_EXECUTOR, self._crawl_sync, task_id, url)
+            async for msg in self._crawl_async(task_id, url):
+                yield msg
         except Exception as e:
             import traceback
             err_msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
             log.error(f"Task {task_id} | 页面抓取失败: {err_msg}\n{traceback.format_exc()}")
             raise RuntimeError(f"页面抓取失败: {err_msg}") from e
 
-        # 逐步yield结果
-        for msg in result:
-            yield msg
-
-    def _crawl_sync(self, task_id: int, url: str) -> List[Dict[str, Any]]:
-        """同步执行Playwright抓取（在线程池中运行）"""
-        import sys
-        if sys.platform == 'win32':
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-        from playwright.sync_api import sync_playwright
+    async def _crawl_async(self, task_id: int, url: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """异步执行Playwright抓取"""
+        from playwright.async_api import async_playwright
         from app.utils.browser_launcher import get_launch_kwargs
 
-        messages = []
-
-        # 限制并发打开浏览器实例，防止进程/资源泄漏
-        _PLAYWRIGHT_SEMAPHORE.acquire()
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(**get_launch_kwargs())
-                context = browser.new_context(
+        async with _get_semaphore():
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(**get_launch_kwargs())
+                context = await browser.new_context(
                     viewport={"width": 1920, "height": 1080},
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                     locale="zh-CN",
                 )
-            # 反自动化检测
-            context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            """)
-            page = context.new_page()
+                # 反自动化检测
+                await context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                """)
+                page = await context.new_page()
 
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                # 等待页面稳定
-                page.wait_for_timeout(3000)
-
-                # 记录最终URL（处理重定向）
-                final_url = page.url
-                if final_url != url:
-                    log.info(f"Task {task_id} | 页面重定向: {url} -> {final_url}")
-
-                messages.append({"step": "打开页面成功", "progress": 15, "message": f"页面加载完成: {final_url}"})
-
-                # 截图
-                screenshot_name = f"{uuid.uuid4().hex}.png"
-                screenshot_path = str(self.screenshot_dir / screenshot_name)
-                page.screenshot(path=screenshot_path)
-                messages.append({"step": "页面截图完成", "progress": 25, "message": "页面截图完成"})
-                log.info(f"Task {task_id} | 截图保存: {screenshot_path}")
-
-                # 提取元素
-                messages.append({"step": "解析DOM", "progress": 35, "message": "正在提取可交互DOM元素..."})
-
-                elements = self._extract_elements(page, final_url)
-
-                # 统计日志
-                tag_counts = {}
-                for el in elements:
-                    tag = el.get("tag_name", "unknown")
-                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
-
-                stats_msg = " | ".join(f"{tag}: {count}" for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1]))
-                log.info(f"Task {task_id} | DOM元素统计: {stats_msg}")
-
-                messages.append({
-                    "step": "解析DOM完成",
-                    "progress": 80,
-                    "message": f"提取到 {len(elements)} 个可交互DOM元素 ({stats_msg})"
-                })
-
-                messages.append({
-                    "step": "result",
-                    "progress": 90,
-                    "message": f"DOM抓取完成，共 {len(elements)} 个元素",
-                    "data": {
-                        "url": url,
-                        "screenshot_path": screenshot_path,
-                        "elements": elements,
-                        "element_count": len(elements),
-                    }
-                })
-
-            except Exception as e:
-                log.error(f"Task {task_id} | 页面抓取失败: {e}")
-                raise
-            finally:
                 try:
-                    browser.close()
-                except Exception:
-                    # 忽略关闭时的异常，防止二次抛出遮蔽原始错误
-                    log.debug("browser.close() failed", exc_info=True)
-        finally:
-            try:
-                _PLAYWRIGHT_SEMAPHORE.release()
-            except Exception:
-                pass
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(3000)
 
-        return messages
+                    final_url = page.url
+                    if final_url != url:
+                        log.info(f"Task {task_id} | 页面重定向: {url} -> {final_url}")
 
-    def _extract_elements(self, page, url: str) -> List[Dict[str, Any]]:
+                    yield {"step": "打开页面成功", "progress": 15, "message": f"页面加载完成: {final_url}"}
+
+                    # 截图
+                    screenshot_name = f"{uuid.uuid4().hex}.png"
+                    screenshot_path = str(self.screenshot_dir / screenshot_name)
+                    await page.screenshot(path=screenshot_path)
+                    yield {"step": "页面截图完成", "progress": 25, "message": "页面截图完成"}
+                    log.info(f"Task {task_id} | 截图保存: {screenshot_path}")
+
+                    # 提取元素
+                    yield {"step": "解析DOM", "progress": 35, "message": "正在提取可交互DOM元素..."}
+
+                    elements = await self._extract_elements(page, final_url)
+
+                    tag_counts = {}
+                    for el in elements:
+                        tag = el.get("tag_name", "unknown")
+                        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+                    stats_msg = " | ".join(f"{tag}: {count}" for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1]))
+                    log.info(f"Task {task_id} | DOM元素统计: {stats_msg}")
+
+                    yield {
+                        "step": "解析DOM完成",
+                        "progress": 80,
+                        "message": f"提取到 {len(elements)} 个可交互DOM元素 ({stats_msg})"
+                    }
+
+                    yield {
+                        "step": "result",
+                        "progress": 90,
+                        "message": f"DOM抓取完成，共 {len(elements)} 个元素",
+                        "data": {
+                            "url": url,
+                            "screenshot_path": screenshot_path,
+                            "elements": elements,
+                            "element_count": len(elements),
+                        }
+                    }
+
+                except Exception as e:
+                    log.error(f"Task {task_id} | 页面抓取失败: {e}")
+                    raise
+                finally:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        log.debug("browser.close() failed", exc_info=True)
+
+    async def _extract_elements(self, page, url: str) -> List[Dict[str, Any]]:
         """从页面提取可交互元素，自动生成定位器"""
-        elements = page.evaluate("""(pageUrl) => {
+        elements = await page.evaluate("""(pageUrl) => {
             const priorityTags = ['button', 'input', 'textarea', 'select', 'option', 'a', 'form', 'label', 'table'];
             const interactiveAttrTags = ['div', 'span', 'p', 'li', 'ul', 'ol', 'nav', 'header', 'section', 'img', 'i', 'svg'];
             const interactiveAttrs = ['onclick', 'role', 'aria-label', 'tabindex', 'data-testid'];

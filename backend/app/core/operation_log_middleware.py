@@ -82,10 +82,18 @@ class OperationLogMiddleware:
                 request_body = body_bytes.decode("utf-8", errors="replace")
 
             # 重新构造 receive 供后续处理
+            # 注意：body 只能投递一次，之后必须委托给 original_receive，
+            # 否则 SSE/Streaming 端点的 disconnect 监听器会一直收到 http.request
+            # 而永远收不到 http.disconnect，导致 97%CPU 死循环并饿死事件循环。
             sent = {"body": body_bytes, "more_body": False}
+            replay_state = {"delivered": False}
 
             async def replayed_receive():
-                return {"type": "http.request", "body": sent["body"], "more_body": False}
+                if not replay_state["delivered"]:
+                    replay_state["delivered"] = True
+                    return {"type": "http.request", "body": sent["body"], "more_body": False}
+                # body 已投递，委托回原始 receive 以正确感知 http.disconnect
+                return await original_receive()
 
             receive = replayed_receive
 

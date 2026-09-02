@@ -284,9 +284,9 @@ class ExecutionDispatcher:
 
             db.commit()
 
-            # 6. 生成报告
+            # 6. 生成报告（持久化到文件，更新 report_path）
             try:
-                ReportGenerator.generate(execution_id)
+                ReportGenerator.generate_and_save(execution_id, format="html")
             except Exception as e:
                 log.warning(f"ExecutionDispatcher | 报告生成失败: {e}")
 
@@ -396,13 +396,153 @@ class ExecutionDispatcher:
     @staticmethod
     async def _run_web(asset: TestAsset, env: str, base_url: str) -> Dict:
         """
-        Web runner（占位）
+        Web runner - 运行 Playwright 脚本
+
+        从 asset.script_content 加载脚本，动态导入 test_* 函数，
+        用 Playwright chromium 逐个执行，聚合结果。
 
         Returns:
-            {"status": "not_implemented", "message": "Web runner not implemented yet"}
+            {"status": "PASS"|"FAIL"|"error", "duration_ms": int,
+             "error": str|None, "assertion_result": {...}, "sub_tests": [...]}
         """
-        log.warning(f"ExecutionDispatcher._run_web | Web runner 未实现, asset_id={asset.id}")
-        return {"status": "not_implemented", "message": "Web runner not implemented yet"}
+        import asyncio
+        script_content = asset.script_content or ""
+        if not script_content:
+            return {"status": "error", "error": "无脚本内容", "duration_ms": 0,
+                    "assertion_result": {"passed": False, "passed_count": 0, "failed_count": 1, "results": []}}
+
+        result = await asyncio.to_thread(
+            ExecutionDispatcher._run_web_sync, asset, script_content, base_url
+        )
+        return result
+
+    @staticmethod
+    def _run_web_sync(asset: TestAsset, script_content: str, base_url: str) -> Dict:
+        """同步执行 Playwright 脚本（在线程中调用）"""
+        import importlib.util
+        import sys
+        import tempfile
+        import os
+        import time as _t
+        import traceback
+
+        start = _t.time()
+        sub_tests = []
+        module = None
+        tmp_path = None
+
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
+                f.write(script_content)
+                tmp_path = f.name
+
+            mod_name = f"_web_script_{asset.id}_{int(_t.time())}"
+            spec = importlib.util.spec_from_file_location(mod_name, tmp_path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[mod_name] = module
+                spec.loader.exec_module(module)
+            else:
+                return {"status": "error", "error": "脚本加载失败", "duration_ms": 0,
+                        "assertion_result": {"passed": False, "passed_count": 0, "failed_count": 1, "results": []}}
+        except Exception as e:
+            return {"status": "error", "error": f"脚本加载异常: {e}",
+                    "duration_ms": int((_t.time() - start) * 1000),
+                    "assertion_result": {"passed": False, "passed_count": 0, "failed_count": 1, "results": []}}
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+        test_funcs = []
+        if module:
+            for name in dir(module):
+                if name.startswith("test_") and callable(getattr(module, name)):
+                    test_funcs.append((name, getattr(module, name)))
+
+        if not test_funcs:
+            return {"status": "error", "error": "脚本中未找到 test_* 函数",
+                    "duration_ms": int((_t.time() - start) * 1000),
+                    "assertion_result": {"passed": False, "passed_count": 0, "failed_count": 1, "results": []}}
+
+        from playwright.sync_api import sync_playwright
+
+        first_error = None
+        passed_count = 0
+        failed_count = 0
+        assertion_results = []
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+
+                for func_name, func in test_funcs:
+                    test_start = _t.time()
+                    test_status = "PASS"
+                    test_error = None
+                    try:
+                        func(page)
+                    except Exception as e:
+                        test_status = "FAIL"
+                        test_error = f"{type(e).__name__}: {e}"
+                        if first_error is None:
+                            first_error = test_error
+                        log.warning(f"_run_web | {func_name} 失败: {test_error}\n{traceback.format_exc()}")
+
+                    test_ms = int((_t.time() - test_start) * 1000)
+                    if test_status == "PASS":
+                        passed_count += 1
+                    else:
+                        failed_count += 1
+                    assertion_results.append({
+                        "name": func_name,
+                        "passed": test_status == "PASS",
+                        "error": test_error,
+                        "duration_ms": test_ms,
+                    })
+                    sub_tests.append({
+                        "case_id": func_name,
+                        "title": func_name,
+                        "status": test_status,
+                        "duration_ms": test_ms,
+                        "error": test_error,
+                    })
+
+                try:
+                    screenshot_dir = os.environ.get("SCREENSHOT_DIR", "/app/data/screenshots")
+                    os.makedirs(screenshot_dir, exist_ok=True)
+                    screenshot_path = os.path.join(screenshot_dir, f"exec_{asset.id}_{int(_t.time())}.png")
+                    page.screenshot(path=screenshot_path, full_page=True)
+                except Exception:
+                    pass
+
+                browser.close()
+
+        except Exception as e:
+            return {"status": "error", "error": f"Playwright 启动失败: {e}",
+                    "duration_ms": int((_t.time() - start) * 1000),
+                    "assertion_result": {"passed": False, "passed_count": 0,
+                                         "failed_count": len(test_funcs), "results": assertion_results},
+                    "sub_tests": sub_tests}
+
+        total_ms = int((_t.time() - start) * 1000)
+        overall_status = "PASS" if failed_count == 0 else "FAIL"
+
+        return {
+            "status": overall_status,
+            "duration_ms": total_ms,
+            "error": first_error,
+            "assertion_result": {
+                "passed": failed_count == 0,
+                "passed_count": passed_count,
+                "failed_count": failed_count,
+                "results": assertion_results,
+            },
+            "sub_tests": sub_tests,
+        }
 
     @staticmethod
     async def _run_android(asset: TestAsset, env: str, base_url: str) -> Dict:

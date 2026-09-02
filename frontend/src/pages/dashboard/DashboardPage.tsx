@@ -157,7 +157,7 @@ export default function DashboardPage() {
                   columns={[
                     { title: '任务', dataIndex: 'task_name', ellipsis: true },
                     { title: '操作', width: 80, render: (_: any, r: any) => (
-                      <Button type="link" size="small" danger onClick={() => navigate(`/report/${r.id}`)}>查看</Button>
+                      <Button type="link" size="small" danger onClick={() => navigate(`/execution/detail/${r.id}`)}>查看</Button>
                     )},
                   ]}
                 />

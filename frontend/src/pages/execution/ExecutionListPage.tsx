@@ -154,7 +154,7 @@ export default function ExecutionListPage() {
               render: (_: any, r: any) => (
                 <Space>
                   <Tooltip title="执行详情">
-                    <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/execution/task/${r.id}`)}>执行详情</Button>
+                    <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/execution/detail/${r.id}`)}>执行详情</Button>
                   </Tooltip>
                   <Button type="link" size="small" onClick={() => window.open(`/api/executions/${r.id}/report?format=html`, '_blank')}>报告</Button>
                 </Space>

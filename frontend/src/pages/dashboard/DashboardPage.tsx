@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Row, Col, Statistic, Button, Table, Tag, Spin, message, Typography, Space } from 'antd';
 import {
   RocketOutlined, CheckCircleOutlined, CloseCircleOutlined, FileTextOutlined,
-  CodeOutlined, ExperimentOutlined, PlayCircleOutlined,
+  CodeOutlined, ExperimentOutlined,
 } from '@ant-design/icons';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -52,21 +52,19 @@ export default function DashboardPage() {
   return (
     <div>
       {/* 顶部欢迎区 */}
-      <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, #1677ff 0%, #4096ff 100%)', border: 'none' }}>
+      <Card style={{ marginBottom: 16 }}>
         <Row align="middle" justify="space-between">
           <Col>
-            <Title level={3} style={{ color: '#fff', margin: 0 }}>欢迎使用 AI 自动化测试平台</Title>
-            <Text style={{ color: 'rgba(255,255,255,0.85)' }}>输入测试需求，AI 自动完成用例生成、脚本编写和自动执行</Text>
+            <Title level={4} style={{ margin: 0 }}>概览</Title>
+            <Text type="secondary">输入需求后，系统生成用例与脚本</Text>
           </Col>
           <Col>
               <Button
                 type="primary"
-                size="large"
                 icon={<RocketOutlined />}
                 onClick={() => navigate('/task/create')}
-                style={{ background: '#fff', color: '#1677ff', border: 'none', fontWeight: 600, height: 48, padding: '0 32px' }}
               >
-                开始智能测试
+                开始测试
               </Button>
           </Col>
         </Row>
@@ -79,38 +77,28 @@ export default function DashboardPage() {
             <Card><Statistic title="测试任务" value={stats.task_count || 0} prefix={<FileTextOutlined />} /></Card>
           </Col>
           <Col span={6}>
-            <Card><Statistic title="AI生成用例" value={stats.case_count || 0} prefix={<ExperimentOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
+            <Card><Statistic title="AI生成用例" value={stats.case_count || 0} prefix={<ExperimentOutlined />} /></Card>
           </Col>
           <Col span={6}>
-            <Card><Statistic title="AI生成脚本" value={stats.script_count || 0} prefix={<CodeOutlined />} valueStyle={{ color: '#1677ff' }} /></Card>
+            <Card><Statistic title="AI生成脚本" value={stats.script_count || 0} prefix={<CodeOutlined />} /></Card>
           </Col>
           <Col span={6}>
-            <Card><Statistic title="执行成功率" value={stats.success_rate || 0} suffix="%" prefix={<CheckCircleOutlined />} valueStyle={{ color: stats.success_rate >= 80 ? '#52c41a' : '#faad14' }} /></Card>
+            <Card><Statistic title="执行成功率" value={stats.success_rate || 0} suffix="%" prefix={<CheckCircleOutlined />} valueStyle={{ color: stats.success_rate >= 80 ? '#3d5a45' : '#8a7348' }} /></Card>
           </Col>
         </Row>
 
         {/* 趋势图 */}
         {trendData.length > 0 && (
-          <Card title={<Space><PlayCircleOutlined style={{ color: '#1677ff' }} /> 7天任务趋势</Space>} style={{ marginBottom: 16 }}>
+          <Card title="7 天任务趋势" style={{ marginBottom: 16 }}>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={trendData}>
-                <defs>
-                  <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1677ff" stopOpacity={0.6} />
-                    <stop offset="95%" stopColor="#1677ff" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="colorExec" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#52c41a" stopOpacity={0.6} />
-                    <stop offset="95%" stopColor="#52c41a" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(v: string) => v.slice(5)} />
-                <YAxis />
+                <CartesianGrid stroke="#efece6" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#6b6560' }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fill: '#6b6560' }} />
                 <Tooltip />
                 <Legend />
-                <Area type="monotone" dataKey="tasks" name="任务数" stroke="#1677ff" fill="url(#colorTasks)" />
-                <Area type="monotone" dataKey="exec_count" name="执行数" stroke="#52c41a" fill="url(#colorExec)" />
+                <Area type="monotone" dataKey="tasks" name="任务数" stroke="#1c1c1c" fill="#efece6" />
+                <Area type="monotone" dataKey="exec_count" name="执行数" stroke="#6b6560" fill="#f7f5f1" />
               </AreaChart>
             </ResponsiveContainer>
           </Card>
@@ -137,7 +125,7 @@ export default function DashboardPage() {
                   }},
                   { title: '创建时间', dataIndex: 'created_at', width: 180, render: (t: string) => t || '-' },
                   { title: '操作', width: 80, render: (_: any, r: any) => (
-                    <Button type="link" size="small" onClick={() => navigate(`/task/${r.id}`)}>详情</Button>
+                    <Button type="link" size="small" onClick={() => navigate(`/task/${r.id}/detail`)}>详情</Button>
                   )},
                 ]}
               />

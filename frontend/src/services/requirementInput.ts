@@ -6,6 +6,8 @@
  */
 
 import request from './request';
+import { assertUploadAllowed, formatUploadError } from '../utils/uploadGuard';
+import { browserApiUrl } from '../utils/apiUrl';
 
 const BASE = '/api/v1/requirement-input';
 
@@ -136,30 +138,41 @@ export async function uploadRequirementFile(
   file: File,
   fileCategory: string = 'auto'
 ): Promise<UploadResponse> {
+  await assertUploadAllowed(file, fileCategory);
+
   const formData = new FormData();
   formData.append('file', file);
   formData.append('file_category', fileCategory);
 
-  const res = await request.post(`${BASE}/upload`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return res.data;
+  try {
+    const res = await request.post(`${BASE}/upload`, formData);
+    const body = (res && typeof res === 'object' && 'status' in res ? res : (res as { data?: UploadResponse })?.data) as UploadResponse;
+    if (!body || body.status === 'error') {
+      throw new Error(body?.error || '上传失败');
+    }
+    return body;
+  } catch (err) {
+    throw new Error(formatUploadError(err));
+  }
 }
 
 /**
  * 解析需求并直接生成测试用例（SSE流式）
  */
 export async function parseAndGenerate(req: ParseRequest): Promise<ReadableStream<Uint8Array>> {
-  const token = localStorage.getItem('access_token') || '';
-  const response = await fetch(`${BASE}/generate`, {
+  const response = await fetch(browserApiUrl(`${BASE}/generate`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     credentials: 'include',
     body: JSON.stringify(req),
   });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(errText || `SSE 请求失败 (${response.status})`);
+  }
 
   if (!response.body) {
     throw new Error('SSE流不可用');

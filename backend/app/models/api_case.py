@@ -10,7 +10,7 @@ ApiCase 存储结构化的接口测试用例，支持：
 """
 import enum
 from sqlalchemy import Column, String, Integer, Text, Boolean, ForeignKey, Index
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from app.db.types import MEDIUMTEXT
 from sqlalchemy.orm import relationship
 from app.models.base import OwnedModel
 

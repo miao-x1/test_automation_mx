@@ -4,6 +4,7 @@
  * 提供与后端 /api/v1/ 接口的通信能力。
  */
 import request from './request';
+import { browserApiUrl } from '../utils/apiUrl';
 
 const BASE = '/api/v1';
 
@@ -130,7 +131,7 @@ export function runTaskStream(req: TaskRunRequest): EventSource {
     workflow_name: req.workflow_name || '',
     timeout: String(req.timeout || 600),
   });
-  return new EventSource(`${BASE}/task/run/stream?${params}`);
+  return new EventSource(browserApiUrl(`${BASE}/task/run/stream?${params}`));
 }
 
 /**
@@ -143,17 +144,18 @@ export async function runTaskSSE(
   onComplete?: () => void
 ): Promise<void> {
   try {
-    const response = await fetch(`${BASE}/task/run/stream`, {
+    const response = await fetch(browserApiUrl(`${BASE}/task/run/stream`), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
       },
+      credentials: 'include',
       body: JSON.stringify(req),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errText = await response.text();
+      throw new Error(errText || `HTTP ${response.status}`);
     }
 
     const reader = response.body?.getReader();
@@ -177,7 +179,11 @@ export async function runTaskSSE(
           try {
             const data = JSON.parse(line.slice(6));
             onEvent(data);
-            if (data.event_type === 'done' || data.event === 'done') {
+            if (data.event_type === 'done' || data.event === 'done' || data.event === 'error' || data.event_type === 'error') {
+              if (data.event === 'error' || data.event_type === 'error') {
+                onError?.(new Error(data.message || data.error || 'Agent 执行失败'));
+                return;
+              }
               onComplete?.();
               return;
             }
@@ -331,17 +337,18 @@ export async function oneClickRunSSE(
   taskId?: string
 ): Promise<void> {
   try {
-    const response = await fetch(`${BASE}/task/one-click/stream`, {
+    const response = await fetch(browserApiUrl(`${BASE}/task/one-click/stream`), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
       },
+      credentials: 'include',
       body: JSON.stringify({ requirement, task_id: taskId || '' }),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errText = await response.text();
+      throw new Error(errText || `HTTP ${response.status}`);
     }
 
     const reader = response.body?.getReader();

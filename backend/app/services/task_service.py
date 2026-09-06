@@ -360,7 +360,7 @@ class TaskService:
             db.commit()
 
             # 创建Agent
-            agent = AgentFactory.create_agent()
+            agent = AgentFactory.create_agent("element_agent")
             analysis_data = None
 
             try:

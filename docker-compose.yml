@@ -151,7 +151,7 @@ services:
       - MILVUS_STANDALONE=1
       - NEO4J_URI=bolt://neo4j:7687
       - USE_SQLITE=False
-      - APP_ENV=production
+      - APP_ENV=development
       - DEBUG=False
       - UPLOAD_DIR=/app/uploads
       - REPORT_DIR=/app/reports

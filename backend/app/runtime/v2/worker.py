@@ -260,10 +260,8 @@ class AgentWorker:
             except ImportError:
                 ctx = None  # autogen_core 不可用时降级
 
-            result = agent.execute(payload, ctx)
-            if asyncio.iscoroutine(result):
-                result = await result
-            return result
+            from app.runtime.execute_adapter import invoke_execute
+            return await invoke_execute(agent, payload, ctx)
 
         elif hasattr(agent, "dispatch_action"):
             # 旧式 Agent

@@ -2,6 +2,8 @@
  * 用例中心 API 服务
  */
 import request from './request';
+import { browserApiUrl } from '../utils/apiUrl';
+import { assertUploadAllowed, formatUploadError } from '../utils/uploadGuard';
 
 export interface CaseTask {
   id: number;
@@ -62,17 +64,120 @@ export interface MindmapNode {
   case_type?: string;
 }
 
-// 用例生成（SSE）- 使用fetch手动解析，不使用EventSource
-export function generateCasesSSE(_params: {
-  title?: string;
-  source_type: string;
-  raw_text?: string;
-  url?: string;
-  case_types?: string[];
-  max_cases?: number;
-  file?: File;
-}): null {
-  return null;
+export type CaseSSEEvent = {
+  event: 'start' | 'progress' | 'data' | 'error' | 'complete';
+  progress?: number;
+  message?: string;
+  status?: string;
+  task_id?: number;
+  case_count?: number;
+};
+
+function normalizeCaseEvent(raw: Record<string, unknown>): CaseSSEEvent {
+  const status = String(raw.status || raw.event || '');
+  let event: CaseSSEEvent['event'] = 'progress';
+  if (raw.event === 'start' || status === 'start') event = 'start';
+  else if (raw.event === 'complete' || status === 'completed') event = 'complete';
+  else if (raw.event === 'error' || status === 'failed') event = 'error';
+  else if (raw.event === 'data') event = 'data';
+  return {
+    event,
+    progress: typeof raw.progress === 'number' ? raw.progress : undefined,
+    message: typeof raw.message === 'string' ? raw.message : undefined,
+    status: status || undefined,
+    task_id: typeof raw.task_id === 'number' ? raw.task_id : undefined,
+    case_count: typeof raw.case_count === 'number' ? raw.case_count : undefined,
+  };
+}
+
+/** 用例生成（SSE）：对接 POST /case/generate */
+export async function generateCasesSSE(
+  params: {
+    title?: string;
+    source_type: string;
+    raw_text?: string;
+    url?: string;
+    case_types?: string[];
+    max_cases?: number;
+    file?: File;
+  },
+  onEvent?: (event: CaseSSEEvent) => void,
+  onError?: (error: Error) => void,
+  onComplete?: (event: CaseSSEEvent) => void,
+): Promise<void> {
+  if (!params.raw_text?.trim() && !params.url?.trim() && !params.file) {
+    const err = new Error('请输入需求文本、URL 或上传文件');
+    onError?.(err);
+    throw err;
+  }
+  if (params.file) {
+    await assertUploadAllowed(params.file);
+  }
+
+  const form = new FormData();
+  form.append('title', params.title || '');
+  form.append('source_type', params.source_type || 'text');
+  form.append('raw_text', params.raw_text || '');
+  form.append('url', params.url || '');
+  form.append('case_types', (params.case_types || ['functional', 'error', 'boundary']).join(','));
+  form.append('max_cases', String(params.max_cases || 20));
+  if (params.file) form.append('file', params.file);
+
+  try {
+    const response = await fetch(browserApiUrl('/case/generate'), {
+      method: 'POST',
+      body: form,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(formatUploadError({ response: { data: safeJson(errText) }, message: errText || `HTTP ${response.status}` }));
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('SSE流不可用');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const raw = JSON.parse(line.slice(5).trim());
+          const evt = normalizeCaseEvent(raw);
+          onEvent?.(evt);
+          if (evt.event === 'error') {
+            const err = new Error(evt.message || '用例生成失败');
+            onError?.(err);
+            return;
+          }
+          if (evt.event === 'complete') {
+            onComplete?.(evt);
+            return;
+          }
+        } catch {
+          // 忽略非 JSON 心跳
+        }
+      }
+    }
+    onComplete?.({ event: 'complete', message: '流结束' });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(formatUploadError(err));
+    onError?.(error);
+    throw error;
+  }
+}
+
+function safeJson(text: string): { detail?: string } {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text };
+  }
 }
 
 export async function generateCases(params: {

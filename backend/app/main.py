@@ -24,6 +24,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
     log.info(f"应用启动中... | 环境: {settings.APP_ENV}")
+    from app.api.admin import apply_persisted_llm_settings
+    apply_persisted_llm_settings()
+    from app.core.security_checks import assert_production_secrets
+    assert_production_secrets()
+    log.info(
+        f"启动就绪状态 | APP_READY=true | AI_READY={'true' if settings.ai_configured else 'false'}"
+    )
 
     # 创建上传目录
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
@@ -51,6 +58,8 @@ async def lifespan(app: FastAPI):
 
     # 初始化数据库
     init_db()
+    from app.core.bootstrap_admin import ensure_seed_admin
+    ensure_seed_admin()
 
     # 初始化 Provider
     from app.core.providers import init_providers
@@ -197,35 +206,48 @@ async def lifespan(app: FastAPI):
 
 
 # 创建FastAPI应用实例
+_docs_url = "/docs" if settings.docs_enabled else None
+_redoc_url = "/redoc" if settings.docs_enabled else None
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="AI驱动的UI自动化测试平台",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
 
-# CORS中间件配置
+# 操作日志 / 鉴权 / 限流 / CORS
+# Starlette 后注册的中间件先执行，CORS 必须在最外层以放行 OPTIONS
+from app.core.operation_log_middleware import OperationLogMiddleware
+from app.core.auth_gate import AuthGateMiddleware
+from app.core.rate_limit import RateLimitMiddleware
+app.add_middleware(OperationLogMiddleware)
+app.add_middleware(AuthGateMiddleware)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
-
-# 操作日志中间件(自动记录API请求到操作日志)
-# 使用纯 ASGI middleware 而非 BaseHTTPMiddleware，避免 SSE/StreamingResponse 连接泄漏
-from app.core.operation_log_middleware import OperationLogMiddleware
-app.add_middleware(OperationLogMiddleware)
 
 # 注册路由
 app.include_router(api_router)
 
-# 注册MCP路由（SSE + Streamable HTTP）
-from app.mcp import setup_mcp_routes
-setup_mcp_routes(app)
+_fixture_dir = Path(__file__).resolve().parents[1] / "test-fixtures" / "basic-web-app"
+if _fixture_dir.is_dir():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/fixtures/basic-web-app", StaticFiles(directory=str(_fixture_dir), html=True), name="basic_web_app")
+
+# 注册MCP路由（SSE + Streamable HTTP）；生产默认关闭
+if settings.mcp_enabled:
+    from app.mcp import setup_mcp_routes
+    setup_mcp_routes(app)
+else:
+    log.info("MCP 路由未注册（ENABLE_MCP=false 或生产默认关闭）")
 
 
 # ============================================================

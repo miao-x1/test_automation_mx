@@ -54,6 +54,19 @@ def _save_settings(data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def apply_persisted_llm_settings() -> None:
+    """把后台保存的 Key 注入运行中的 settings，供 llm.py / Agent 读取。"""
+    saved = _load_settings()
+    qwen = (saved.get("qwen_api_key") or "").strip()
+    if qwen:
+        app_settings.QWEN_API_KEY = qwen
+    openai_key = (saved.get("openai_api_key") or "").strip()
+    if openai_key:
+        app_settings.OPENAI_API_KEY = openai_key
+    if qwen or openai_key:
+        log.info("已从 system_settings.json 注入 LLM Key 到运行时 settings")
+
+
 # ==================== 请求模型 ====================
 
 class CreateEnvironmentRequest(BaseModel):
@@ -288,8 +301,8 @@ async def get_settings(
     config = {
         "backend_url": saved.get("backend_url", "http://localhost:8000"),
         "debug_mode": saved.get("debug_mode", False),
-        "qwen_api_key": saved.get("qwen_api_key", ""),
-        "openai_api_key": saved.get("openai_api_key", ""),
+        "qwen_api_key": saved.get("qwen_api_key") or (app_settings.QWEN_API_KEY or ""),
+        "openai_api_key": saved.get("openai_api_key") or (getattr(app_settings, "OPENAI_API_KEY", None) or ""),
         "embedding_provider": getattr(app_settings, "EMBEDDING_PROVIDER", "dashscope"),
         "milvus_host": getattr(app_settings, "MILVUS_HOST", "localhost"),
         "milvus_port": getattr(app_settings, "MILVUS_PORT", 19530),
@@ -323,7 +336,8 @@ async def update_settings(
     current["updated_at"] = datetime.now().isoformat()
     
     _save_settings(current)
-    log.info(f"系统配置已更新 | user_id={user.id}")
+    apply_persisted_llm_settings()
+    log.info(f"系统配置已更新 | user_id={user.id} | AI_READY={app_settings.ai_configured}")
     
     return Response(code=200, message="更新成功", data=current)
 

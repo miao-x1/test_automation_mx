@@ -17,9 +17,14 @@ build/
 *.swp
 *.swo
 
-# 环境变量
+# 环境变量与运行时密钥（禁止提交真实密码/短信密钥）
 .env
 !.env.example
+deploy/docker/.env
+**/.env.local
+**/*.pem
+**/*.p12
+secrets/
 
 # 日志
 logs/
@@ -69,3 +74,17 @@ ENVIRONMENT_AUDIT_REPORT.md
 
 # Local settings
 .claude/
+.cursor/
+
+# Local debug artifacts
+backend/.pytest_cache/
+backend/pytest_phase3_full.txt
+backend/_login_debug.png
+backend/_product_ui_e2e*.png
+backend/_repair_*.py
+backend/_audit_prod_schema.py
+backend/_schema_diff.py
+backend/_mig_acceptance.py
+backend/_mig_fail_closed.py
+backend/_classify_secrets.py
+backend/_docker_fail_closed.py

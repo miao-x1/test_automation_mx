@@ -116,13 +116,21 @@ export async function importFromAI(taskId: number): Promise<{
 }
 
 export async function importFromSwagger(data: {
-  content: string;
+  swagger_json?: Record<string, unknown>;
+  content?: string;
   base_url?: string;
 }): Promise<{
-  imported: number;
-  cases: { id: number; title: string }[];
+  imported_count: number;
+  case_ids: { id: number; title: string; case_id?: string }[];
 }> {
-  return request.post('/api-test/import/swagger', data);
+  let swagger_json = data.swagger_json;
+  if (!swagger_json && data.content) {
+    swagger_json = JSON.parse(data.content);
+  }
+  return request.post('/api-test/import/swagger', {
+    swagger_json,
+    base_url: data.base_url,
+  });
 }
 
 // ========== 目录管理 ==========

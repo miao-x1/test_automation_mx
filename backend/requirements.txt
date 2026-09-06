@@ -1,3 +1,7 @@
+# 测试
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+
 # FastAPI核心
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
@@ -60,9 +64,9 @@ dashscope>=1.17.0
 mcp>=1.28.0
 
 # AI Agent 框架
-autogen-core>=0.7.0
-autogen-agentchat>=0.7.0
-autogen-ext>=0.7.0
+autogen-core>=0.7.5,<0.8
+autogen-agentchat>=0.7.5,<0.8
+autogen-ext>=0.7.5,<0.8
 
 # 定时任务调度
 apscheduler>=3.10.0

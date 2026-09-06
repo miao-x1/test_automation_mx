@@ -34,7 +34,7 @@ interface UserStats {
   feedback: { avg_score: number };
 }
 
-export default function ProfilePage() {
+export default function ProfilePage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const [user, setUser] = useState<UserInfo | null>(getStoredUser());
   const [stats, setStats] = useState<UserStats | null>(null);
@@ -158,24 +158,24 @@ export default function ProfilePage() {
       title: '我的任务',
       value: stats?.tasks?.total || 0,
       icon: <FileTextOutlined />,
-      route: '/manage',
+      route: '/assets?tab=tasks',
       tags: [
         { color: 'success', text: `完成 ${stats?.tasks?.completed || 0}`, icon: <CheckCircleOutlined /> },
         { color: 'error', text: `失败 ${stats?.tasks?.failed || 0}`, icon: <CloseCircleOutlined /> },
       ],
     },
     {
-      title: '我的需求',
+      title: '测试记录',
       value: stats?.requirements?.total || 0,
       icon: <BarChartOutlined />,
-      route: '/requirement',
+      route: '/assets?tab=tasks',
       tags: [],
     },
     {
       title: '我的执行',
       value: stats?.executions?.total || 0,
       icon: <ThunderboltOutlined />,
-      route: '/executions',
+      route: '/assets?tab=reports',
       tags: [
         {
           color: (stats?.executions?.pass_rate || 0) >= 80 ? 'success' : 'error',
@@ -184,14 +184,11 @@ export default function ProfilePage() {
       ],
     },
     {
-      title: '知识库',
-      value: (stats?.knowledge?.elements || 0) + (stats?.knowledge?.scripts || 0),
+      title: '测试用例',
+      value: stats?.requirements?.total || 0,
       icon: <DatabaseOutlined />,
-      route: '/test-case',
-      tags: [
-        { color: 'default' as const, text: `元素 ${stats?.knowledge?.elements || 0}` },
-        { color: 'default' as const, text: `脚本 ${stats?.knowledge?.scripts || 0}` },
-      ],
+      route: '/assets?tab=cases',
+      tags: [],
     },
   ];
 
@@ -205,8 +202,11 @@ export default function ProfilePage() {
   ];
 
   return (
-    <div style={{ padding: '0 24px' }}>
-      <Title level={4}>个人中心</Title>
+    <div className="product-shell">
+      <div className="product-hero">
+        <h1>个人中心</h1>
+        <p>账号资料、密码和你的测试统计。团队和项目请到工作空间管理。</p>
+      </div>
 
       <Spin spinning={loading}>
         {/* 用户信息卡片 */}
@@ -220,7 +220,7 @@ export default function ProfilePage() {
               <Avatar size={80} icon={<UserOutlined />} src={user?.avatar} />
               <div style={{
                 position: 'absolute', bottom: 0, right: 0,
-                background: '#1890ff', borderRadius: '50%', width: 24, height: 24,
+                background: '#1c1c1c', borderRadius: '50%', width: 24, height: 24,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 border: '2px solid #fff',
               }}>
@@ -265,9 +265,11 @@ export default function ProfilePage() {
               <Button type="primary" icon={<EditOutlined />} onClick={openEditModal}>
                 编辑资料
               </Button>
-              <Button icon={<LockOutlined />} onClick={() => setPasswordModalVisible(true)}>
-                修改密码
-              </Button>
+              {!embedded && (
+                <Button icon={<LockOutlined />} onClick={() => setPasswordModalVisible(true)}>
+                  修改密码
+                </Button>
+              )}
             </Space>
           </div>
         </Card>

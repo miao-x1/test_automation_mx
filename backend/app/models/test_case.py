@@ -29,6 +29,14 @@ class TestCase(OwnedModel):
     """
     __tablename__ = "test_case"
 
+    project_id = Column(
+        Integer,
+        ForeignKey("project.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属项目",
+    )
+
     # 关联信息
     task_id = Column(
         String(64), nullable=True, index=True,

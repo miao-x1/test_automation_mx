@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Table, Button, Tag, Space, message, Typography, Tabs, Progress, Tooltip } from 'antd';
 import { ReloadOutlined, ClockCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import request from '@/services/request';
+import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
 
 const { Title } = Typography;
 
@@ -37,12 +38,13 @@ export default function ExecutionListPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [activeTab, setActiveTab] = useState('all');
+  const [projectName, setProjectName] = useState(getCurrentProjectName());
 
   const fetchData = useCallback(async (p: number, ps: number, status?: string) => {
     setLoading(true);
     try {
       const res: any = await request.get('/executions/list', {
-        params: { page: p, page_size: ps, status: status === 'all' ? undefined : status },
+        params: { page: p, page_size: ps, status: status === 'all' ? undefined : status, project_id: getCurrentProjectId() || undefined },
       });
       const d = res.data || res;
       setData(d?.items || []);
@@ -56,6 +58,14 @@ export default function ExecutionListPage() {
   }, []);
 
   useEffect(() => { fetchData(page, pageSize, activeTab); }, [page, pageSize, activeTab, fetchData]);
+  useEffect(() => {
+    const reload = () => {
+      setProjectName(getCurrentProjectName());
+      fetchData(1, pageSize, activeTab);
+    };
+    window.addEventListener(PROJECT_CHANGED, reload);
+    return () => window.removeEventListener(PROJECT_CHANGED, reload);
+  }, [fetchData, pageSize, activeTab]);
 
   const statusMap: Record<string, { color: string; text: string }> = {
     success: { color: 'green', text: '成功' },
@@ -69,7 +79,7 @@ export default function ExecutionListPage() {
   return (
     <div>
       <Card
-        title={<Title level={4} style={{ margin: 0 }}>测试执行</Title>}
+        title={<Title level={4} style={{ margin: 0 }}>测试执行{projectName ? ` · ${projectName}` : ''}</Title>}
         extra={
           <Space>
             <Button icon={<ClockCircleOutlined />} onClick={() => navigate('/execution/schedule')}>定时任务</Button>

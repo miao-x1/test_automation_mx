@@ -157,8 +157,19 @@ class TaskContext:
         """
         result = dict(self.payload)
         for step_output in self._step_outputs.values():
-            if isinstance(step_output, dict):
-                result.update(step_output)
+            if not isinstance(step_output, dict):
+                continue
+            for key, value in step_output.items():
+                existing = result.get(key)
+                # 后续空列表不能冲掉前序步骤已产出的元素/用例
+                if (
+                    isinstance(value, list)
+                    and not value
+                    and isinstance(existing, list)
+                    and existing
+                ):
+                    continue
+                result[key] = value
         if extra:
             result.update(extra)
         return result

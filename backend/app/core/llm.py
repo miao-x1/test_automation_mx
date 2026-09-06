@@ -30,6 +30,17 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _text_model_name() -> str:
+    """纯文本调用必须用文本模型；QWEN_MODEL 常被配成 vl 视觉模型。"""
+    explicit = getattr(settings, "QWEN_TEXT_MODEL", None)
+    if explicit:
+        return explicit
+    model = getattr(settings, "QWEN_MODEL", "qwen-plus") or "qwen-plus"
+    if "-vl" in model:
+        return "qwen-plus"
+    return model
+
+
 def _get_llm_config() -> Dict[str, Any]:
     """获取 LLM 配置（自动选择可用 provider：QWEN 优先，降级 DeepSeek）"""
     # 优先 QWEN
@@ -38,7 +49,7 @@ def _get_llm_config() -> Dict[str, Any]:
             "api_key": settings.QWEN_API_KEY,
             "api_url": getattr(settings, "QWEN_API_URL",
                                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
-            "model": getattr(settings, "QWEN_MODEL", "qwen-plus"),
+            "model": _text_model_name(),
             "temperature": getattr(settings, "LLM_TEMPERATURE", 0.3),
             "max_tokens": getattr(settings, "LLM_MAX_TOKENS", 8192),
             "timeout": getattr(settings, "LLM_TIMEOUT", 120),

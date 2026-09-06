@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Table, Button, Tag, Space, message, Typography, Tooltip, Row, Col, Statistic, Progress } from 'antd';
 import { EyeOutlined, DownloadOutlined, ReloadOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import request from '@/services/request';
+import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
 
 const { Title } = Typography;
 
@@ -36,12 +37,13 @@ export default function ReportListPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [projectName, setProjectName] = useState(getCurrentProjectName());
 
   const fetchData = useCallback(async (p: number, ps: number) => {
     setLoading(true);
     try {
       const res: any = await request.get('/executions/list', {
-        params: { page: p, page_size: ps },
+        params: { page: p, page_size: ps, project_id: getCurrentProjectId() || undefined },
       });
       const d = res.data || res;
       // 只显示已完成的执行
@@ -59,6 +61,14 @@ export default function ReportListPage() {
   }, []);
 
   useEffect(() => { fetchData(page, pageSize); }, [page, pageSize, fetchData]);
+  useEffect(() => {
+    const reload = () => {
+      setProjectName(getCurrentProjectName());
+      fetchData(1, pageSize);
+    };
+    window.addEventListener(PROJECT_CHANGED, reload);
+    return () => window.removeEventListener(PROJECT_CHANGED, reload);
+  }, [fetchData, pageSize]);
 
   // 统计数据
   const passedCount = data.filter((d) => d.status === 'success').length;
@@ -92,7 +102,7 @@ export default function ReportListPage() {
       </Row>
 
       <Card
-        title={<Title level={4} style={{ margin: 0 }}><FileTextOutlined /> 测试报告</Title>}
+        title={<Title level={4} style={{ margin: 0 }}><FileTextOutlined /> 测试报告{projectName ? ` · ${projectName}` : ''}</Title>}
         extra={<Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>刷新</Button>}
       >
         <Table

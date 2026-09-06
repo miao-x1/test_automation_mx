@@ -220,6 +220,10 @@ class Orchestrator:
                     input_data=step_input,
                     ctx=ctx,
                 )
+                if isinstance(output, dict) and str(output.get("status") or "").upper() == "FAILED":
+                    raise RuntimeError(
+                        output.get("error") or output.get("message") or f"{step.step_name} 返回 FAILED"
+                    )
 
                 duration_ms = int((time.time() - start_time) * 1000)
                 ctx.finish_step(step.step_name, output, duration_ms)

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +10,9 @@ import {
   RobotOutlined, EditOutlined,
 } from '@ant-design/icons';
 import request from '@/services/request';
+import { browserApiUrl } from '@/utils/apiUrl';
+import { assertUploadAllowed, formatUploadError } from '@/utils/uploadGuard';
+import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -52,12 +55,16 @@ interface DraftState {
   requirement: string;
   urlAddress: string;
   imageServerPath: string;
+  documentServerPath: string;
+  documentFileName: string;
   userTestType: TestType | null;
   inputMode: InputMode;
   setTaskName: (v: string) => void;
   setRequirement: (v: string) => void;
   setUrlAddress: (v: string) => void;
   setImageServerPath: (v: string) => void;
+  setDocumentServerPath: (v: string) => void;
+  setDocumentFileName: (v: string) => void;
   setUserTestType: (v: TestType | null) => void;
   setInputMode: (v: InputMode) => void;
   clear: () => void;
@@ -70,15 +77,22 @@ const useCreateTestDraft = create<DraftState>()(
       requirement: '',
       urlAddress: '',
       imageServerPath: '',
+      documentServerPath: '',
+      documentFileName: '',
       userTestType: null,
       inputMode: 'text',
       setTaskName: (v) => set({ taskName: v }),
       setRequirement: (v) => set({ requirement: v }),
       setUrlAddress: (v) => set({ urlAddress: v }),
       setImageServerPath: (v) => set({ imageServerPath: v }),
+      setDocumentServerPath: (v) => set({ documentServerPath: v }),
+      setDocumentFileName: (v) => set({ documentFileName: v }),
       setUserTestType: (v) => set({ userTestType: v }),
       setInputMode: (v) => set({ inputMode: v }),
-      clear: () => set({ taskName: '', requirement: '', urlAddress: '', imageServerPath: '', userTestType: null }),
+      clear: () => set({
+        taskName: '', requirement: '', urlAddress: '', imageServerPath: '',
+        documentServerPath: '', documentFileName: '', userTestType: null,
+      }),
     }),
     { name: 'create-test-draft' }
   )
@@ -92,12 +106,13 @@ export default function CreateTestPage() {
     inputMode, setInputMode,
     requirement, setRequirement,
     imageServerPath, setImageServerPath,
+    documentServerPath, setDocumentServerPath,
+    documentFileName, setDocumentFileName,
     urlAddress, setUrlAddress,
     userTestType, setUserTestType,
   } = useCreateTestDraft();
-  // 非持久化状态（图片预览/文件/分析过程）
+  // 非持久化状态（图片预览/分析过程）
   const [imageUrl, setImageUrl] = useState('');
-  const [docFile, setDocFile] = useState<any>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>([]);
   const [taskId, setTaskId] = useState<number | null>(null);
@@ -109,6 +124,38 @@ export default function CreateTestPage() {
   const [aiReason, setAiReason] = useState('');
   const [classifying, setClassifying] = useState(false);
   const classifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [projectName, setProjectName] = useState(getCurrentProjectName());
+  const [recentTasks, setRecentTasks] = useState<any[]>([]);
+  const lastProjectId = useRef(getCurrentProjectId());
+
+  useEffect(() => {
+    const loadProjectTasks = async () => {
+      const projectId = getCurrentProjectId();
+      setProjectName(getCurrentProjectName());
+      if (lastProjectId.current && lastProjectId.current !== projectId) {
+        setAnalysisSteps([]);
+        setResult(null);
+        setTaskId(null);
+      }
+      lastProjectId.current = projectId;
+      if (!projectId) {
+        setRecentTasks([]);
+        return;
+      }
+      try {
+        const res: any = await request.get('/requirement/list', {
+          params: { page: 1, page_size: 5, project_id: projectId },
+        });
+        const data = res.data || res;
+        setRecentTasks(Array.isArray(data) ? data : (data?.items || []));
+      } catch {
+        setRecentTasks([]);
+      }
+    };
+    void loadProjectTasks();
+    window.addEventListener(PROJECT_CHANGED, loadProjectTasks);
+    return () => window.removeEventListener(PROJECT_CHANGED, loadProjectTasks);
+  }, []);
 
   // ── AI 自动判断测试类型（防抖触发）──
   const triggerClassify = (text: string) => {
@@ -126,9 +173,15 @@ export default function CreateTestPage() {
           setAiConfidence(data.confidence || 0);
           setAiReason(data.reason || '');
           setUserTestType(tType); // 用户默认跟随AI推荐
+        } else {
+          setAiTestType(null);
+          setAiReason('测试类型识别失败');
+          message.error('测试类型识别失败');
         }
-      } catch {
-        // 静默失败，不影响用户输入
+      } catch (err: any) {
+        setAiTestType(null);
+        setAiReason(err?.message || '测试类型识别失败');
+        message.error(err?.message || '测试类型识别失败');
       } finally {
         setClassifying(false);
       }
@@ -152,6 +205,7 @@ export default function CreateTestPage() {
     // 确定提交数据
     let reqData: any = {
       requirement: '',
+      project_id: getCurrentProjectId() || undefined,
     };
 
     if (inputMode === 'text') {
@@ -162,8 +216,9 @@ export default function CreateTestPage() {
       reqData.requirement = `请分析页面截图并生成测试用例`;
       reqData.image_paths = imageServerPath ? [imageServerPath] : [];
     } else if (inputMode === 'document') {
-      if (!docFile) { message.warning('请上传文档'); return; }
-      reqData.requirement = `请分析文档「${docFile.name}」并生成测试用例`;
+      if (!documentServerPath) { message.warning('请先上传文档到服务器'); return; }
+      reqData.requirement = `请分析文档「${documentFileName || documentServerPath}」并生成测试用例`;
+      reqData.document_paths = [documentServerPath];
     } else if (inputMode === 'url') {
       if (!urlAddress.trim()) { message.warning('请输入URL地址'); return; }
       reqData.requirement = `测试 ${urlAddress.trim()} 页面功能`;
@@ -218,7 +273,7 @@ export default function CreateTestPage() {
       setTaskId(newTaskId);
 
       // 2. 用 fetch 消费 SSE 流，真实推进进度条
-      const response = await fetch(`/api/requirement/analyze/${newTaskId}`, {
+      const response = await fetch(browserApiUrl(`/requirement/analyze/${newTaskId}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -232,6 +287,8 @@ export default function CreateTestPage() {
       let buffer = '';
       const collectedCases: any[] = [];
       let scriptOutput: any = null;
+      let flowState: 'RUNNING' | 'SUCCESS' | 'FAILED' = 'RUNNING';
+      let flowError = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -249,32 +306,72 @@ export default function CreateTestPage() {
             if (evt === 'step_start' && idx >= 0) {
               updateStep(idx, 'process', msg.data?.description || sname);
             } else if (evt === 'step_success' && idx >= 0) {
-              updateStep(idx, 'finish', msg.data?.description || '完成');
-              // 收集用例
-              if (sname === 'generate_cases' && msg.data?.output?.cases) {
-                const cs = msg.data.output.cases;
+              const output = msg.data?.output;
+              if (sname === 'generate_script' && (output?.status === 'FAILED' || output?.error)) {
+                flowState = 'FAILED';
+                flowError = output?.error || output?.message || '脚本生成失败';
+                updateStep(idx, 'error', flowError);
+              } else {
+                updateStep(idx, 'finish', msg.data?.description || '完成');
+              }
+              if (sname === 'generate_cases' && output?.cases) {
+                const cs = output.cases;
                 if (Array.isArray(cs)) collectedCases.push(...cs);
               }
-              // 收集脚本
-              if (sname === 'generate_script' && msg.data?.output) {
-                scriptOutput = msg.data.output;
+              if (sname === 'generate_script' && output) {
+                scriptOutput = output;
               }
+            } else if (evt === 'step_failed' && idx >= 0) {
+              flowState = 'FAILED';
+              flowError = msg.error || msg.data?.error || '步骤失败';
+              updateStep(idx, 'error', flowError);
             } else if (evt === 'step_skipped' && idx >= 0) {
               updateStep(idx, 'finish', '已跳过');
             }
-            if (evt === 'flow_failed' || msg.error) {
-              updateStep(idx >= 0 ? idx : 4, 'error', msg.error || '分析失败');
+            if (evt === 'flow_failed') {
+              flowState = 'FAILED';
+              flowError = msg.error || msg.data?.error || '分析失败';
+              updateStep(idx >= 0 ? idx : 4, 'error', flowError);
+            }
+            if (evt === 'flow_success' && flowState !== 'FAILED') {
+              flowState = 'SUCCESS';
             }
           } catch { /* 忽略解析错误 */ }
         }
       }
 
-      // 流结束后，未完成的步骤标记完成
-      steps.forEach((s, i) => { if (s.status === 'process' || s.status === 'wait') updateStep(i, 'finish'); });
-      updateStep(1, 'finish', userTestType ? `${TEST_TYPE_TAGS[userTestType]?.label || userTestType} 测试` : '自动识别');
+      if (flowState === 'RUNNING') {
+        flowState = 'FAILED';
+        flowError = flowError || 'SSE 连接中断，分析未完成';
+      }
+
+      if (flowState !== 'SUCCESS') {
+        steps.forEach((s, i) => {
+          if (s.status === 'process' || s.status === 'wait') {
+            updateStep(i, 'error', flowError || '未完成');
+          }
+        });
+        setResult(null);
+        message.error(flowError || '分析失败');
+        return;
+      }
+
+      const unfinished = steps.filter((s) => s.status === 'process');
+      if (unfinished.length) {
+        steps.forEach((s, i) => {
+          if (s.status === 'process') updateStep(i, 'error', '步骤未收到完成事件');
+        });
+        message.error('分析未完整完成');
+        return;
+      }
+      steps.forEach((s, i) => {
+        if (s.status === 'wait') updateStep(i, 'finish', '已跳过');
+      });
       if (collectedCases.length > 0) updateStep(3, 'finish', `已生成 ${collectedCases.length} 条用例`);
       const framework = userTestType ? TYPE_FRAMEWORK[userTestType] : 'Playwright';
-      updateStep(4, 'finish', scriptOutput ? `${framework} 脚本已生成` : '脚本生成完成');
+      if (scriptOutput && scriptOutput.status !== 'FAILED') {
+        updateStep(4, 'finish', `${framework} 脚本已生成`);
+      }
 
       setResult({ cases: collectedCases, script: scriptOutput });
       message.success('AI 分析完成！');
@@ -356,12 +453,38 @@ export default function CreateTestPage() {
       label: <span><UploadOutlined /> 文档上传</span>,
       children: (
         <Upload.Dragger
-          accept=".pdf,.doc,.docx,.txt,.yaml,.yml,.json"
+          accept=".pdf,.doc,.docx,.yaml,.yml,.json"
           maxCount={1}
-          beforeUpload={(file) => { setDocFile(file); message.success(`已选择: ${file.name}`); return false; }}
+          beforeUpload={(file) => {
+            void (async () => {
+              try {
+                await assertUploadAllowed(file, 'auto');
+                const formData = new FormData();
+                formData.append('file', file);
+                const res = await fetch(browserApiUrl('/requirement/upload_document'), {
+                  method: 'POST',
+                  body: formData,
+                  credentials: 'include',
+                });
+                const data = await res.json();
+                const path = data?.data?.document_path;
+                if (!res.ok || !path) {
+                  throw new Error(data?.detail || data?.message || '文档上传失败');
+                }
+                setDocumentServerPath(path);
+                setDocumentFileName(data.data.file_name || file.name);
+                message.success('文档上传成功');
+              } catch (err) {
+                setDocumentServerPath('');
+                setDocumentFileName('');
+                message.error(formatUploadError(err));
+              }
+            })();
+            return false;
+          }}
         >
-          {docFile ? (
-            <p><FileTextOutlined /> {docFile.name}</p>
+          {documentServerPath ? (
+            <p><FileTextOutlined /> {documentFileName || documentServerPath}</p>
           ) : (
             <>
               <p style={{ fontSize: 40, color: '#999' }}><UploadOutlined /></p>
@@ -413,6 +536,12 @@ export default function CreateTestPage() {
             </Button>
           </Col>
         </Row>
+        <div style={{ marginTop: 12 }}>
+          <Text type="secondary">
+            当前项目：<Text strong>{projectName || '未选择'}</Text>
+            。点「开始智能测试」后，任务会记到这个项目；换项目会换下面的任务列表。
+          </Text>
+        </div>
       </Card>
 
       {/* AI推荐测试类型区域 */}
@@ -536,6 +665,37 @@ export default function CreateTestPage() {
           </Card>
         </Col>
       </Row>
+
+      <Card
+        title={`本项目任务${projectName ? ` · ${projectName}` : ''}`}
+        extra={<Button type="link" onClick={() => navigate('/task')}>查看全部</Button>}
+        style={{ marginTop: 16 }}
+      >
+        {recentTasks.length === 0 ? (
+          <Empty description="这个项目还没有测试任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <Table
+            dataSource={recentTasks}
+            rowKey="id"
+            size="small"
+            pagination={false}
+            columns={[
+              {
+                title: '任务',
+                dataIndex: 'task_name',
+                ellipsis: true,
+                render: (name: string, row: any) => (
+                  <Button type="link" onClick={() => navigate(`/task/${row.id}/detail`)}>
+                    {name || row.requirement || `任务 #${row.id}`}
+                  </Button>
+                ),
+              },
+              { title: '状态', dataIndex: 'status', width: 100 },
+              { title: '类型', dataIndex: 'task_type', width: 80, render: (t: string) => t || '-' },
+            ]}
+          />
+        )}
+      </Card>
 
       {/* 底部：生成结果 */}
       {result && (

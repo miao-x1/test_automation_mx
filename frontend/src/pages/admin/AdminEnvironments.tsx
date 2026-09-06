@@ -74,7 +74,7 @@ export default function AdminEnvironments() {
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
     { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: 'Base URL', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
+    { title: '页面地址', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
     {
       title: '描述',
       dataIndex: 'description',
@@ -99,7 +99,7 @@ export default function AdminEnvironments() {
 
   return (
     <div>
-      <PageHeader title="环境配置" subtitle="管理测试环境URL、变量和密钥" icon={<CloudServerOutlined />} />
+      <PageHeader title="执行环境" subtitle="管理测试时使用的页面地址和环境说明" icon={<CloudServerOutlined />} />
       <Card
         extra={
           <Space>
@@ -126,7 +126,7 @@ export default function AdminEnvironments() {
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="请输入环境名称" />
           </Form.Item>
-          <Form.Item name="base_url" label="Base URL" rules={[{ required: true, message: '请输入 Base URL' }]}>
+          <Form.Item name="base_url" label="页面地址" rules={[{ required: true, message: '请输入页面地址' }]}>
             <Input placeholder="https://example.com" />
           </Form.Item>
           <Form.Item name="description" label="描述">

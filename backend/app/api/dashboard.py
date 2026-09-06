@@ -27,8 +27,10 @@ async def get_dashboard_stats(
     返回：任务数、成功率、脚本数、知识库数量、图谱数量、平均执行耗时
     """
     try:
+        import json as _json
         from app.models.requirement_task import RequirementTask, RequirementStatus
         from app.models.script import Script
+        from app.models.test_asset import TestAsset
         from app.models.execution_record import ExecutionRecord, ExecutionStatus
         from sqlalchemy import func
 
@@ -47,8 +49,43 @@ async def get_dashboard_stats(
         finished_tasks = completed_tasks + failed_tasks
         success_rate = round(completed_tasks / finished_tasks * 100, 1) if finished_tasks > 0 else 0
 
-        # 脚本数
+        # 用例数：统一资产 + 需求任务里已生成的用例 JSON
+        asset_count = db.query(func.count(TestAsset.id)).filter(
+            TestAsset.user_id == uid, TestAsset.is_deleted == False,
+        ).scalar() or 0
+        generated_cases = 0
+        for (raw,) in db.query(RequirementTask.generated_case).filter(
+            RequirementTask.user_id == uid,
+            RequirementTask.generated_case.isnot(None),
+            RequirementTask.generated_case != "",
+        ).all():
+            try:
+                parsed = _json.loads(raw)
+                if isinstance(parsed, list):
+                    generated_cases += len(parsed)
+                elif isinstance(parsed, dict):
+                    inner = parsed.get("cases") or parsed.get("test_cases") or parsed.get("items")
+                    generated_cases += len(inner) if isinstance(inner, list) else 1
+                else:
+                    generated_cases += 1
+            except Exception:
+                generated_cases += 1
+        case_count = max(asset_count, generated_cases)
+
+        # 脚本数：Script 表 + 需求任务已落脚本 + 资产里的脚本
         total_scripts = db.query(func.count(Script.id)).filter(Script.user_id == uid).scalar() or 0
+        req_scripts = db.query(func.count(RequirementTask.id)).filter(
+            RequirementTask.user_id == uid,
+            RequirementTask.generated_script.isnot(None),
+            RequirementTask.generated_script != "",
+        ).scalar() or 0
+        asset_scripts = db.query(func.count(TestAsset.id)).filter(
+            TestAsset.user_id == uid,
+            TestAsset.is_deleted == False,
+            TestAsset.script_content.isnot(None),
+            TestAsset.script_content != "",
+        ).scalar() or 0
+        total_scripts = max(total_scripts, req_scripts, asset_scripts)
 
         # 执行统计
         total_executions = db.query(func.count(ExecutionRecord.id)).filter(ExecutionRecord.user_id == uid).scalar() or 0
@@ -124,7 +161,7 @@ async def get_dashboard_stats(
         return Response(code=200, message="获取成功", data={
             # 扁平字段（兼容前端 DashboardPage 直接读取）
             "task_count": total_tasks,
-            "case_count": total_tasks * 3,  # 近似估算：每个任务约3个用例
+            "case_count": case_count,
             "script_count": total_scripts,
             "success_rate": success_rate,
             "execution_count": total_executions,
@@ -282,6 +319,7 @@ async def get_recent_tasks(
 
             result.append({
                 "id": t.id,
+                "task_name": (t.requirement or "")[:60] or f"任务 #{t.id}",
                 "requirement": (t.requirement or "")[:80],
                 "status": t.status,
                 "intent": t.intent,

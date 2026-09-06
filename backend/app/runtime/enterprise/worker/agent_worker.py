@@ -211,21 +211,23 @@ class AgentWorker:
         payload.setdefault("task_id", state.task_id)
         payload.setdefault("action", state.action)
 
-        # 调用 Agent
+        # 调用 Agent（兼容 execute(payload, ctx) 与 execute(**kwargs)）
         if hasattr(agent, "execute"):
-            # BaseRoutedAgent: execute(payload, ctx)
-            # 构造一个合法的 MessageContext (Agent 直接调用模式)
             import uuid as _uuid
-            from autogen_core import MessageContext, CancellationToken
-            ctx = MessageContext(
-                sender=None,
-                topic_id=None,
-                is_rpc=False,
-                cancellation_token=CancellationToken(),
-                message_id=str(_uuid.uuid4()),
-            )
-            result = await agent.execute(payload, ctx)
-            return result
+            from app.runtime.execute_adapter import invoke_execute
+            ctx = None
+            try:
+                from autogen_core import MessageContext, CancellationToken
+                ctx = MessageContext(
+                    sender=None,
+                    topic_id=None,
+                    is_rpc=False,
+                    cancellation_token=CancellationToken(),
+                    message_id=str(_uuid.uuid4()),
+                )
+            except ImportError:
+                ctx = None
+            return await invoke_execute(agent, payload, ctx)
 
         # 兼容旧式 Agent: dispatch_action
         if hasattr(agent, "dispatch_action"):

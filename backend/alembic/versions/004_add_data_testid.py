@@ -7,6 +7,8 @@ Create Date: 2026-06-06
 from alembic import op
 import sqlalchemy as sa
 
+from app.db.alembic_ops import add_column_if_missing
+
 revision = '004'
 down_revision = '003'
 branch_labels = None
@@ -14,7 +16,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('ui_element', sa.Column('data_testid', sa.String(255), nullable=True, comment='data-testid属性'))
+    add_column_if_missing(
+        'ui_element',
+        sa.Column('data_testid', sa.String(255), nullable=True, comment='data-testid属性'),
+    )
 
 
 def downgrade() -> None:

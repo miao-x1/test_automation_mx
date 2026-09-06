@@ -10,6 +10,8 @@
 - PUT  /api/auth/profile      - 更新用户资料
 - PUT  /api/auth/password     - 修改密码
 """
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field, EmailStr
@@ -19,6 +21,7 @@ from sqlalchemy import func
 
 from app.db.database import get_db
 from app.models.user import User, UserRole, Workspace
+from app.core.config import settings
 from app.core.auth import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
@@ -27,6 +30,31 @@ from app.core.auth import (
 )
 from app.schemas.response import Response
 from app.core.logger import log
+from app.services.captcha_service import create_captcha, verify_captcha
+from app.services.verification_service import VerifyError, consume_sms_code, issue_sms_code
+
+_PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _require_phone(phone: str) -> str:
+    value = (phone or "").strip()
+    if not _PHONE_RE.match(value):
+        raise HTTPException(status_code=400, detail="请输入有效的中国大陆手机号")
+    return value
+
+
+def _require_captcha(captcha_id: str, captcha_code: str) -> None:
+    if not settings.CAPTCHA_REQUIRED:
+        return
+    if not verify_captcha(captcha_id or "", captcha_code or ""):
+        raise HTTPException(status_code=400, detail="图形验证码错误或已过期")
 
 router = APIRouter()
 
@@ -35,7 +63,11 @@ router = APIRouter()
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="用户名")
-    password: str = Field(..., min_length=6, max_length=100, description="密码")
+    password: str = Field(..., min_length=8, max_length=100, description="密码")
+    phone: str = Field(..., description="手机号")
+    sms_code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
+    captcha_id: str = Field(..., description="图形验证码ID")
+    captcha_code: str = Field(..., description="图形验证码")
     email: Optional[str] = Field(None, description="邮箱")
     display_name: Optional[str] = Field(None, max_length=100, description="显示名称")
 
@@ -43,6 +75,23 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(..., description="用户名")
     password: str = Field(..., description="密码")
+    captcha_id: str = Field(..., description="图形验证码ID")
+    captcha_code: str = Field(..., description="图形验证码")
+
+
+class SendSmsRequest(BaseModel):
+    phone: str = Field(..., description="手机号")
+    purpose: str = Field(..., description="register/reset")
+    captcha_id: str = Field(..., description="图形验证码ID")
+    captcha_code: str = Field(..., description="图形验证码")
+
+
+class ResetPasswordRequest(BaseModel):
+    phone: str = Field(..., description="手机号")
+    sms_code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
+    new_password: str = Field(..., min_length=8, max_length=100, description="新密码")
+    captcha_id: str = Field(..., description="图形验证码ID")
+    captcha_code: str = Field(..., description="图形验证码")
 
 
 class RefreshRequest(BaseModel):
@@ -62,6 +111,51 @@ class ChangePasswordRequest(BaseModel):
 
 # ==================== 注册 ====================
 
+@router.get("/public-config", summary="登录页公开配置")
+async def public_config():
+    """供登录页读取：注册、验证码、短信通道。无需登录。"""
+    return Response(code=200, message="ok", data={
+        "allow_register": settings.register_enabled,
+        "register_require_approval": settings.REGISTER_REQUIRE_APPROVAL,
+        "captcha_required": settings.CAPTCHA_REQUIRED,
+        "sms_provider": (settings.SMS_PROVIDER or "console").lower(),
+        "sms_echo": settings.sms_echo_enabled,
+    })
+
+
+@router.get("/captcha", summary="获取图形验证码")
+async def get_captcha():
+    payload = create_captcha()
+    if not settings.sms_echo_enabled:
+        payload.pop("debug_text", None)
+    return Response(code=200, message="ok", data=payload)
+
+
+@router.post("/sms/send", summary="发送短信验证码")
+async def send_sms_code(req: SendSmsRequest, request: Request, db: Session = Depends(get_db)):
+    phone = _require_phone(req.phone)
+    _require_captcha(req.captcha_id, req.captcha_code)
+    purpose = (req.purpose or "").strip().lower()
+    if purpose == "register":
+        if not settings.register_enabled:
+            raise HTTPException(status_code=403, detail="当前环境已关闭开放注册")
+        if db.query(User).filter(User.phone == phone).first():
+            raise HTTPException(status_code=400, detail="该手机号已注册")
+    elif purpose == "reset":
+        if not db.query(User).filter(User.phone == phone).first():
+            raise HTTPException(status_code=400, detail="该手机号未注册")
+    else:
+        raise HTTPException(status_code=400, detail="验证码用途无效")
+    try:
+        code = issue_sms_code(db, phone, purpose, ip=_client_ip(request))
+    except VerifyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = {"sent": True, "ttl": settings.SMS_CODE_TTL_SECONDS}
+    if settings.sms_echo_enabled:
+        data["debug_code"] = code
+    return Response(code=200, message="验证码已发送", data=data)
+
+
 @router.post("/register", summary="用户注册")
 async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     """
@@ -71,10 +165,23 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     - 自动创建个人工作空间
     - 返回 access_token + refresh_token
     """
+    if not settings.register_enabled:
+        raise HTTPException(status_code=403, detail="当前环境已关闭开放注册，请联系管理员创建账号")
+
+    _require_captcha(req.captcha_id, req.captcha_code)
+    phone = _require_phone(req.phone)
+    try:
+        consume_sms_code(db, phone, "register", req.sms_code)
+    except VerifyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # 检查用户名是否已存在
     existing = db.query(User).filter(User.username == req.username).first()
     if existing:
         raise HTTPException(status_code=400, detail="用户名已存在")
+
+    if db.query(User).filter(User.phone == phone).first():
+        raise HTTPException(status_code=400, detail="该手机号已注册")
 
     # 检查邮箱是否已存在
     if req.email:
@@ -83,13 +190,15 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="邮箱已被注册")
 
     # 创建用户
+    pending_approval = settings.REGISTER_REQUIRE_APPROVAL
     user = User(
         username=req.username,
         email=req.email,
+        phone=phone,
         hashed_password=hash_password(req.password),
         display_name=req.display_name or req.username,
         role=UserRole.USER,
-        is_active=True,
+        is_active=not pending_approval,
     )
     db.add(user)
     db.flush()  # 获取 user.id
@@ -103,6 +212,16 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(workspace)
     db.commit()
     db.refresh(user)
+    from app.services.workspace_service import bootstrap_user_workspace
+    bootstrap_user_workspace(db, user)
+
+    if pending_approval:
+        log.info(f"用户注册待审批 | username={user.username}")
+        return JSONResponse(content=Response(
+            code=200,
+            message="注册成功，请等待管理员审批后再登录",
+            data={"user": _user_to_dict(user), "pending_approval": True},
+        ).model_dump())
 
     # 生成 Token
     access_token = create_access_token(data={"sub": str(user.id)})
@@ -130,6 +249,8 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
     - 验证用户名和密码
     - 返回 access_token + refresh_token
     """
+    _require_captcha(req.captcha_id, req.captcha_code)
+
     user = db.query(User).filter(User.username == req.username).first()
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -154,6 +275,23 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
     }).model_dump())
     set_auth_cookies(response, access_token, refresh_token)
     return response
+
+
+@router.post("/password/reset", summary="短信验证后重置密码")
+async def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    _require_captcha(req.captcha_id, req.captcha_code)
+    phone = _require_phone(req.phone)
+    user = db.query(User).filter(User.phone == phone).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="该手机号未注册")
+    try:
+        consume_sms_code(db, phone, "reset", req.sms_code)
+    except VerifyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    user.hashed_password = hash_password(req.new_password)
+    db.commit()
+    log.info(f"用户重置密码 | username={user.username}")
+    return Response(code=200, message="密码已重置，请使用新密码登录")
 
 
 # ==================== 刷新Token ====================
@@ -392,6 +530,7 @@ def _user_to_dict(user: User) -> dict:
         "id": user.id,
         "username": user.username,
         "email": user.email,
+        "phone": user.phone,
         "display_name": user.display_name,
         "avatar": user.avatar,
         "role": user.role,

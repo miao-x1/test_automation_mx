@@ -33,7 +33,7 @@ def upgrade() -> None:
     existing_task_cols = {c["name"] for c in inspector.get_columns("task")}
 
     if "input_mode" not in existing_task_cols:
-        op.add_column('task', sa.Column('input_mode', sa.String(length=10), nullable=False, server_default='image', comment='输入模式: image/url'))
+        op.add_column('task', sa.Column('input_mode', sa.String(length=32), nullable=False, server_default='image', comment='输入模式: image/url/requirement'))
     if "page_url" not in existing_task_cols:
         op.add_column('task', sa.Column('page_url', sa.String(length=1024), nullable=True, comment='页面URL（URL模式时填写）'))
 
@@ -43,19 +43,18 @@ def upgrade() -> None:
         op.create_index('idx_task_input_mode', 'task', ['input_mode'])
 
     # 2. 重建ui_element表（幂等：已迁移则跳过）
-    existing_tables = inspector.get_table_names()
+    # inspect() 会缓存表名；drop 之后必须重新探测，否则会跳过 CREATE。
+    from app.db.alembic_ops import table_exists
 
-    if "ui_element" in existing_tables:
-        ui_cols = {c["name"] for c in inspector.get_columns("ui_element")}
-        if "source" in ui_cols:
-            return  # 已是最新结构
+    if table_exists("ui_element"):
+        ui_cols = {c["name"] for c in inspect(conn).get_columns("ui_element")}
+        if "source" not in ui_cols:
+            for fk in inspect(conn).get_foreign_keys("ui_element"):
+                if fk.get("name"):
+                    op.drop_constraint(fk["name"], "ui_element", type_="foreignkey")
+            op.drop_table("ui_element")
 
-        # 旧结构 → 删外键 → 删表 → 重建
-        for fk in inspector.get_foreign_keys("ui_element"):
-            op.drop_constraint(fk["name"], "ui_element", type_="foreignkey")
-        op.drop_table("ui_element")
-
-    if "ui_element" not in inspector.get_table_names():
+    if not table_exists("ui_element"):
         op.create_table(
             'ui_element',
             sa.Column('id', sa.Integer(), autoincrement=True, nullable=False, comment='主键ID'),

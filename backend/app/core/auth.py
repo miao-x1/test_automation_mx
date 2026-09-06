@@ -26,7 +26,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 # JWT 配置
-SECRET_KEY = getattr(settings, 'SECRET_KEY', None) or "test-automation-secret-key-change-in-production"
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24小时
 REFRESH_TOKEN_EXPIRE_DAYS = 7
@@ -73,10 +73,12 @@ def decode_token(token: str) -> Optional[dict]:
 
 def set_auth_cookies(response: FastAPIResponse, access_token: str, refresh_token: str):
     """设置认证Cookie（httpOnly）"""
+    secure = settings.cookie_secure_enabled
     response.set_cookie(
         key=ACCESS_TOKEN_COOKIE,
         value=access_token,
         httponly=True,
+        secure=secure,
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         samesite="lax",
         path="/",
@@ -85,6 +87,7 @@ def set_auth_cookies(response: FastAPIResponse, access_token: str, refresh_token
         key=REFRESH_TOKEN_COOKIE,
         value=refresh_token,
         httponly=True,
+        secure=secure,
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         samesite="lax",
         path="/",

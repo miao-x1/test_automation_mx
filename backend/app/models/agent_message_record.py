@@ -118,8 +118,8 @@ class AgentMessageRecord(BaseModel):
         }
 
 
-Index('idx_agent_msg_source', AgentMessageRecord.source_agent)
-Index('idx_agent_msg_target', AgentMessageRecord.target_agent)
-Index('idx_agent_msg_session', AgentMessageRecord.session_id)
-Index('idx_agent_msg_status', AgentMessageRecord.status)
-Index('idx_agent_msg_task', AgentMessageRecord.task_id)
+Index('idx_agent_msg_record_source', AgentMessageRecord.source_agent)
+Index('idx_agent_msg_record_target', AgentMessageRecord.target_agent)
+Index('idx_agent_msg_record_session', AgentMessageRecord.session_id)
+Index('idx_agent_msg_record_status', AgentMessageRecord.status)
+Index('idx_agent_msg_record_task', AgentMessageRecord.task_id)

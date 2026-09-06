@@ -7,6 +7,8 @@ Create Date: 2026-06-14
 from alembic import op
 import sqlalchemy as sa
 
+from app.db.alembic_ops import ensure_user_table
+
 revision = '014'
 down_revision = '013'
 branch_labels = None
@@ -14,6 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    ensure_user_table()
     op.create_table(
         'requirement_input',
         sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True, comment='主键ID'),

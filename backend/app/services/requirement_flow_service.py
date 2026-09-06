@@ -18,7 +18,7 @@ from app.core.logger import log
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.requirement_task import RequirementTask, RequirementStatus
-from app.models.task import Task, TaskStatus
+from app.models.task import Task, TaskStatus, TaskType, InputMode
 from app.models.script import Script
 from app.models.ui_element import UIElement
 from app.models.page_relation import PageRelation
@@ -30,11 +30,12 @@ class RequirementFlowService:
     """需求驱动测试流程编排服务"""
 
     @staticmethod
-    def _create_requirement_task(db, requirement: str) -> RequirementTask:
+    def _create_requirement_task(db, requirement: str, project_id: int = None) -> RequirementTask:
         """创建需求任务记录"""
         task = RequirementTask(
             requirement=requirement,
             status=RequirementStatus.PENDING,
+            project_id=project_id,
         )
         db.add(task)
         db.commit()
@@ -55,15 +56,17 @@ class RequirementFlowService:
             log.warning(f"更新需求任务失败(已rollback): task_id={task_id}, error={e}")
 
     @staticmethod
-    def _create_task_for_requirement(db, requirement: str, page_url: str = "", user_id: int = None) -> Task:
+    def _create_task_for_requirement(db, requirement: str, page_url: str = "", user_id: int = None, project_id: int = None) -> Task:
         """为需求自动创建一个Task"""
         task = Task(
             task_name=f"[需求] {requirement[:50]}",
-            status=TaskStatus.SUCCESS,
-            input_mode="requirement",
+            status=TaskStatus.PENDING,
+            input_mode=InputMode.REQUIREMENT,
+            task_type=TaskType.WEB,
             page_url=page_url or None,
             user_id=user_id,
             created_by=user_id,
+            project_id=project_id,
         )
         db.add(task)
         db.commit()

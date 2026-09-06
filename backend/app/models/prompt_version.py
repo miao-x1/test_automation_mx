@@ -12,7 +12,7 @@ PromptVersion 模型 - Prompt 版本管理表
 """
 import enum
 from sqlalchemy import Column, String, Text, Boolean, Float, Integer, Enum as SQLEnum, Index
-from sqlalchemy.dialects import mysql
+from app.db.types import MEDIUMTEXT
 from app.models.base import BaseModel
 
 
@@ -51,7 +51,7 @@ class PromptVersion(BaseModel):
         comment="版本号: v1 / v2 / 1.0.0 等",
     )
     content = Column(
-        mysql.MEDIUMTEXT(), nullable=False,
+        MEDIUMTEXT(), nullable=False,
         comment="Prompt 内容",
     )
     description = Column(

@@ -258,7 +258,7 @@ class AgentFactory:
             "playwright_agent": "app.agent.vision.playwright_agent.PlaywrightAgent",
             "element_merge_agent": "app.agent.vision.element_merge_agent.ElementMergeAgent",
             "fusion_agent": "app.agent.requirement.fusion_agent.FusionAgent",
-            "input_router": "app.agent.requirement.input_router_agent.InputRouter",
+            "input_router": "app.agent.requirement.input_router.InputRouter",
             "flow_parser": "app.agent.requirement.flow_parser.FlowParser",
             "flow_script_generator": "app.agent.requirement.flow_script_generator.FlowScriptGenerator",
             "page_state_manager": "app.agent.requirement.page_state_manager.PageStateManager",
@@ -297,8 +297,8 @@ class AgentFactory:
     @classmethod
     def create_agent(cls, agent_type: Optional[str] = None, **kwargs) -> BaseAgent:
         """兼容旧 AgentFactory.create_agent() 接口"""
-        if agent_type is None:
-            agent_type = "mock_agent"
+        if not agent_type:
+            raise ValueError("create_agent 必须指定真实 agent_type，禁止回落到 mock")
         return cls.create(agent_type, **kwargs)
 
     @classmethod

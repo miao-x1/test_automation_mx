@@ -2,7 +2,7 @@
 任务模型
 """
 import enum
-from sqlalchemy import Column, String, Float, Enum as SQLEnum, Index
+from sqlalchemy import Column, String, Float, Integer, ForeignKey, Enum as SQLEnum, Index
 from sqlalchemy.orm import relationship
 from app.models.base import OwnedModel
 
@@ -37,6 +37,14 @@ class Task(OwnedModel):
     核心业务表，记录每个UI自动化测试任务
     """
     __tablename__ = "task"
+
+    project_id = Column(
+        Integer,
+        ForeignKey("project.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属项目",
+    )
 
     task_name = Column(
         String(255),

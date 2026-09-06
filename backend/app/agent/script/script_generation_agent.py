@@ -36,6 +36,7 @@ ScriptGenerationAgent - 统一脚本生成入口
   / _inject_retry_logic() 逻辑完整迁移到本类。
   原 ScriptGenerator 标记为 @deprecated。
 """
+import asyncio
 import json
 import re
 import time as _time
@@ -46,6 +47,17 @@ from app.agent.core.types import AgentCapability
 from app.agent.script.strategy_agent import StrategyAgent, Strategy, StrategyResult
 from app.agent.script.prompt_builder import PromptBuilder
 from app.agent.script.script_reuse_agent import ScriptReuseAgent
+from app.agent.script.locator_builder import (
+    enrich_elements,
+    extract_url,
+    script_has_invalid_locators,
+    usable_elements,
+)
+from app.agent.script.locator_validator import (
+    LOCATOR_GENERATION_FAILED,
+    script_uses_validated,
+    validate_locators_on_page,
+)
 from app.core.config import settings
 from app.core.logger import log
 from app.core.llm import call_llm
@@ -108,12 +120,32 @@ class ScriptGenerationAgent(NewBaseAgent):
             }
         """
         # ---- 参数适配（兼容多套管道键名）----
-        case_data = kwargs.get("case_data") or kwargs.get("test_cases") or {}
+        case_data = kwargs.get("case_data") or kwargs.get("test_cases") or kwargs.get("cases") or {}
+        if isinstance(case_data, list):
+            case_data = {
+                "cases": case_data,
+                "case_name": (case_data[0] or {}).get("case_name", "") if case_data else "",
+                "steps": (case_data[0] or {}).get("steps", []) if case_data else [],
+                "assertions": (case_data[0] or {}).get("assertions", []) if case_data else [],
+            }
         elements = kwargs.get("elements") or kwargs.get("rag_context") or []
         if isinstance(elements, dict):
             elements = elements.get("elements", [])
+        page_elements = kwargs.get("page_elements")
+        if isinstance(page_elements, dict):
+            extra = []
+            for item in page_elements.values():
+                if isinstance(item, list):
+                    extra.extend(item)
+            if extra:
+                elements = list(elements or []) + extra
+        elif isinstance(page_elements, list) and page_elements:
+            elements = list(elements or []) + page_elements
         target_url = kwargs.get("target_url", "")
         requirement = kwargs.get("requirement", "")
+        if isinstance(case_data, dict) and requirement and not case_data.get("requirement"):
+            case_data = {**case_data, "requirement": requirement}
+        self._assertion_blob = f"{requirement} {case_data if isinstance(case_data, dict) else ''}"
         history_scripts = kwargs.get("history_scripts")
         graph_business_flow = (
             kwargs.get("graph_business_flow")
@@ -136,33 +168,120 @@ class ScriptGenerationAgent(NewBaseAgent):
                 "assertions": [],
             }
 
+        target_url = extract_url(
+            target_url,
+            case_data if isinstance(case_data, dict) else {},
+            elements,
+            requirement,
+            kwargs.get("page_url"),
+        )
+        elements = enrich_elements(elements if isinstance(elements, list) else [])
+        if not usable_elements(elements):
+            from app.agent.script.locator_builder import infer_elements_from_cases
+            infer_source = case_data
+            if isinstance(case_data, dict) and isinstance(case_data.get("cases"), list):
+                infer_source = case_data["cases"]
+            inferred = infer_elements_from_cases(infer_source)
+            if inferred:
+                elements = inferred
+        if isinstance(case_data, dict) and not target_url:
+            nested_cases = case_data.get("cases") if isinstance(case_data.get("cases"), list) else [case_data]
+            target_url = extract_url(target_url, *nested_cases)
+
+        if not target_url:
+            return self._fail(
+                script_format,
+                "缺少真实目标 URL，无法生成可执行脚本。请提供页面地址，不要使用 TODO_REPLACE。",
+            )
+        if (
+            not usable_elements(elements)
+            and not self._steps_have_locators(case_data)
+            and not self._has_interactive_steps(case_data)
+        ):
+            return self._fail(
+                script_format,
+                "无法确定稳定定位器。请先完成 UI 识别，或为步骤提供 role/label/placeholder/test_id/text/css/xpath。",
+            )
+
+        validation = await asyncio.to_thread(
+            validate_locators_on_page,
+            target_url,
+            elements if isinstance(elements, list) else [],
+            case_data,
+        )
+        if validation.get("status") != "SUCCESS":
+            return self._fail(
+                script_format,
+                validation.get("error") or f"{LOCATOR_GENERATION_FAILED}: 真实页面无法验证定位器",
+            )
+        elements = validation.get("elements") or []
+        log.info(
+            f"[ScriptGenerationAgent] Locator 已验证 | "
+            f"count={len(elements)} exprs={[e.get('playwright_expr') for e in elements]}"
+        )
+
+        try:
+            validated_script = self._generate_from_template(
+                case_data if isinstance(case_data, dict) else {},
+                elements,
+                target_url,
+            )
+            accepted = self._accept_script(validated_script, {
+                "script_content": validated_script,
+                "script_format": script_format,
+                "script_quality": 0.95,
+                "degradation_info": {
+                    "level": 1,
+                    "source": "validated_locator",
+                    "quality": "high",
+                    "action_required": False,
+                    "message": "Locator 已在真实页面验证，使用已验证定位器生成脚本",
+                },
+                "reuse_info": None,
+                "strategy_used": None,
+                "generation_time_ms": 0,
+            })
+            if accepted and script_uses_validated(validated_script, elements):
+                log.info("[ScriptGenerationAgent] 已验证 locator 脚本生成成功")
+                return accepted
+        except Exception as exc:
+            log.warning(f"[ScriptGenerationAgent] 已验证 locator 模板失败，继续降级: {exc}")
+
         # ---- Step 0: 复用检查 ----
         if requirement:
             try:
                 reuse_result = self.reuse_agent.check_reuse(requirement, top_k=1)
                 if reuse_result.get("reuse") and reuse_result.get("script_content"):
-                    log.info(
-                        f"[ScriptGenerationAgent] 复用命中 | "
-                        f"similarity={reuse_result.get('similarity', 0):.4f}"
-                    )
-                    return {
-                        "script_content": reuse_result["script_content"],
-                        "script_format": script_format,
-                        "script_quality": 1.0,
-                        "degradation_info": {
-                            "level": 0,
-                            "source": "reuse",
-                            "quality": "high",
-                            "action_required": False,
-                            "message": (
-                                f"已复用历史脚本（相似度: "
-                                f"{reuse_result.get('similarity', 0):.4f}）"
-                            ),
-                        },
-                        "reuse_info": reuse_result,
-                        "strategy_used": None,
-                        "generation_time_ms": 0,
-                    }
+                    reused = reuse_result["script_content"]
+                    invalid = script_has_invalid_locators(reused)
+                    if invalid:
+                        log.warning(f"[ScriptGenerationAgent] 复用脚本不可执行，继续生成: {invalid}")
+                    elif not script_uses_validated(reused, elements):
+                        log.warning("[ScriptGenerationAgent] 复用脚本未包含已验证 locator，继续生成")
+                    else:
+                        log.info(
+                            f"[ScriptGenerationAgent] 复用命中 | "
+                            f"similarity={reuse_result.get('similarity', 0):.4f}"
+                        )
+                        return {
+                            "status": "SUCCESS",
+                            "script_content": reused,
+                            "script_format": script_format,
+                            "script_quality": 1.0,
+                            "degradation_info": {
+                                "level": 0,
+                                "source": "reuse",
+                                "quality": "high",
+                                "action_required": False,
+                                "message": (
+                                    f"已复用历史脚本（相似度: "
+                                    f"{reuse_result.get('similarity', 0):.4f}）"
+                                ),
+                            },
+                            "reuse_info": reuse_result,
+                            "strategy_used": None,
+                            "generation_time_ms": 0,
+                        }
             except Exception as e:
                 log.warning(f"[ScriptGenerationAgent] 复用检查失败，继续生成: {e}")
 
@@ -188,8 +307,13 @@ class ScriptGenerationAgent(NewBaseAgent):
                 "action_required": False,
                 "message": "使用 StrategyAgent 策略生成，质量最高",
             }
-            log.info("[ScriptGenerationAgent] Level 1 成功")
-            return result
+            accepted = self._accept_validated_script(
+                result.get("script_content", ""), result, elements, case_data, target_url
+            )
+            if accepted:
+                log.info("[ScriptGenerationAgent] Level 1 成功")
+                return accepted
+            raise ValueError(script_has_invalid_locators(result.get("script_content", "")) or "脚本不可执行")
 
         except Exception as e:
             log.warning(f"[ScriptGenerationAgent] Level 1 失败: {e}")
@@ -205,8 +329,7 @@ class ScriptGenerationAgent(NewBaseAgent):
                     target_url=target_url,
                 )
                 if script_content:
-                    log.info("[ScriptGenerationAgent] Level 2 成功")
-                    return {
+                    accepted = self._accept_validated_script(script_content, {
                         "script_content": script_content,
                         "script_format": script_format,
                         "script_quality": 0.7,
@@ -220,7 +343,11 @@ class ScriptGenerationAgent(NewBaseAgent):
                         "reuse_info": None,
                         "strategy_used": None,
                         "generation_time_ms": 0,
-                    }
+                    }, elements, case_data, target_url)
+                    if accepted:
+                        log.info("[ScriptGenerationAgent] Level 2 成功")
+                        return accepted
+                    raise ValueError(script_has_invalid_locators(script_content) or "脚本不可执行")
             except Exception as e:
                 log.warning(f"[ScriptGenerationAgent] Level 2 失败: {e}")
 
@@ -234,8 +361,7 @@ class ScriptGenerationAgent(NewBaseAgent):
                 requirement=requirement,
             )
             if script_content:
-                log.info("[ScriptGenerationAgent] Level 3 成功")
-                return {
+                accepted = self._accept_validated_script(script_content, {
                     "script_content": script_content,
                     "script_format": script_format,
                     "script_quality": 0.5,
@@ -249,32 +375,146 @@ class ScriptGenerationAgent(NewBaseAgent):
                     "reuse_info": None,
                     "strategy_used": None,
                     "generation_time_ms": 0,
-                }
+                }, elements, case_data, target_url)
+                if accepted:
+                    log.info("[ScriptGenerationAgent] Level 3 成功")
+                    return accepted
+                raise ValueError(script_has_invalid_locators(script_content) or "脚本不可执行")
         except Exception as e:
             log.warning(f"[ScriptGenerationAgent] Level 3 失败: {e}")
 
         # ---- Level 4: 纯规则生成（PlaywrightAgent，无 LLM，兜底）----
         log.warning("[ScriptGenerationAgent] Level 4: 规则模板兜底")
-        script_content = self._generate_level4(
-            case_data=case_data,
-            elements=elements,
-            target_url=target_url,
-        )
+        try:
+            script_content = self._generate_level4(
+                case_data=case_data,
+                elements=elements,
+                target_url=target_url,
+            )
+            accepted = self._accept_validated_script(script_content, {
+                "script_content": script_content,
+                "script_format": script_format,
+                "script_quality": 0.2,
+                "degradation_info": {
+                    "level": 4,
+                    "source": "rule",
+                    "quality": "low",
+                    "action_required": True,
+                    "message": "LLM 生成全部失败，已使用规则模板生成，必须人工修改",
+                },
+                "reuse_info": None,
+                "strategy_used": None,
+                "generation_time_ms": 0,
+            }, elements, case_data, target_url)
+            if accepted:
+                return accepted
+        except Exception as e:
+            log.warning(f"[ScriptGenerationAgent] Level 4 失败: {e}")
+        return self._fail(script_format, "无法确定稳定定位器，已拒绝生成空 locator / TODO_REPLACE 脚本。")
+
+    def _fail(self, script_format: str, message: str) -> Dict[str, Any]:
+        log.error(f"[ScriptGenerationAgent] {message}")
         return {
-            "script_content": script_content,
+            "status": "FAILED",
+            "error": message,
+            "message": message,
+            "script_content": "",
             "script_format": script_format,
-            "script_quality": 0.2,
+            "script_quality": 0.0,
             "degradation_info": {
-                "level": 4,
-                "source": "rule",
-                "quality": "low",
+                "level": -1,
+                "source": "validation",
+                "quality": "none",
                 "action_required": True,
-                "message": "LLM 生成全部失败，已使用规则模板生成，必须人工修改",
+                "message": message,
             },
             "reuse_info": None,
             "strategy_used": None,
             "generation_time_ms": 0,
         }
+
+    @staticmethod
+    def _inject_visible_text_assertions(script_content: str, blob: str) -> str:
+        text = script_content or ""
+        extra: List[str] = []
+        if "登录成功" in (blob or "") and "登录成功" not in text:
+            extra.append('    expect(page.get_by_text("登录成功")).to_be_visible()')
+        if not extra:
+            return text
+        return text.rstrip() + "\n" + "\n".join(extra) + "\n"
+
+    def _accept_script(self, script_content: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        invalid = script_has_invalid_locators(script_content)
+        if invalid:
+            log.warning(f"[ScriptGenerationAgent] 拒绝不可执行脚本: {invalid}")
+            return None
+        script_content = self._inject_visible_text_assertions(
+            script_content,
+            str(payload.get("_assertion_blob") or getattr(self, "_assertion_blob", "") or ""),
+        )
+        payload["status"] = "SUCCESS"
+        payload["script_content"] = script_content
+        return payload
+
+    def _accept_validated_script(
+        self,
+        script_content: str,
+        payload: Dict[str, Any],
+        elements: List[Dict],
+        case_data: Any,
+        target_url: str,
+    ) -> Optional[Dict[str, Any]]:
+        if (
+            script_content
+            and not script_has_invalid_locators(script_content)
+            and script_uses_validated(script_content, elements)
+        ):
+            return self._accept_script(script_content, payload)
+        try:
+            rewritten = self._generate_from_template(
+                case_data if isinstance(case_data, dict) else {},
+                elements,
+                target_url,
+            )
+        except Exception as exc:
+            log.warning(f"[ScriptGenerationAgent] 已验证 locator 模板重写失败: {exc}")
+            return None
+        accepted = self._accept_script(rewritten, payload)
+        if accepted:
+            accepted["locator_rewritten"] = True
+        return accepted
+
+    @staticmethod
+    def _has_interactive_steps(case_data: Any) -> bool:
+        if not isinstance(case_data, dict):
+            return False
+        steps = list(case_data.get("steps") or [])
+        for case in case_data.get("cases") or []:
+            if isinstance(case, dict):
+                steps.extend(case.get("steps") or [])
+        for step in steps:
+            if isinstance(step, str) and any(tok in step for tok in ("输入", "点击", "填写", "fill", "click")):
+                return True
+            if not isinstance(step, dict):
+                continue
+            action = str(step.get("action") or "").lower()
+            desc = str(step.get("description") or step.get("step") or "")
+            if action in {"fill", "input", "type", "click", "submit"}:
+                return True
+            if any(tok in desc for tok in ("输入", "点击", "填写", "fill", "click")):
+                return True
+        return False
+
+    @staticmethod
+    def _steps_have_locators(case_data: Any) -> bool:
+        if not isinstance(case_data, dict):
+            return False
+        for step in case_data.get("steps") or []:
+            if isinstance(step, dict) and (
+                step.get("locator") or step.get("playwright_expr") or step.get("css_selector")
+            ):
+                return True
+        return False
 
     # ==================== Level 1: 策略增强生成 ====================
 
@@ -498,11 +738,14 @@ class ScriptGenerationAgent(NewBaseAgent):
                         break
                 return script
 
-            loop = asyncio.new_event_loop()
             try:
-                script = loop.run_until_complete(_collect())
-            finally:
-                loop.close()
+                asyncio.get_running_loop()
+            except RuntimeError:
+                script = asyncio.run(_collect())
+            else:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    script = pool.submit(asyncio.run, _collect()).result()
 
             if script:
                 return script
@@ -519,37 +762,63 @@ class ScriptGenerationAgent(NewBaseAgent):
         target_url: str = "",
     ) -> str:
         """基础模板拼接（最终兜底）"""
+        from app.agent.script.locator_builder import _normalize_case_steps, infer_fill_value
+
         steps = case_data.get("steps", []) if isinstance(case_data, dict) else []
+        if (not steps or not isinstance(steps, list)) and isinstance(case_data, dict):
+            if isinstance(case_data.get("cases"), list) and case_data["cases"]:
+                steps = _normalize_case_steps(case_data["cases"][0])
+            else:
+                steps = _normalize_case_steps(case_data)
         assertions = case_data.get("assertions", []) if isinstance(case_data, dict) else []
 
-        # 构建元素映射
+        # 构建元素映射（已验证 locator 按意图优先）
         elem_map = {}
+        fill_expr = ""
+        click_expr = ""
         for elem in elements:
             if isinstance(elem, dict):
                 name = elem.get("element_name") or elem.get("name") or ""
-                locator = elem.get("locator") or elem.get("css_selector") or elem.get("xpath") or ""
+                locator = (
+                    elem.get("playwright_expr")
+                    or elem.get("locator")
+                    or elem.get("best_locator")
+                    or elem.get("css_selector")
+                    or elem.get("xpath")
+                    or ""
+                )
                 if name and locator:
                     elem_map[name.lower()] = locator
+                intent = str(elem.get("intent") or "").lower()
+                etype = str(elem.get("type") or "").lower()
+                if locator and not fill_expr and (
+                    intent in {"fill", "search", "input"} or etype in {"input", "searchbox", "textarea"}
+                ):
+                    fill_expr = locator
+                if locator and not click_expr and (
+                    intent == "click" or etype in {"button", "link"}
+                ):
+                    click_expr = locator
 
         lines = [
-            "import pytest",
+            "import re",
             "from playwright.sync_api import Page, expect",
             "",
-            "",
-            "class TestGenerated:",
-            '    """自动生成 - 模板模式（Level 4 降级）"""',
             "",
         ]
 
         case_name = case_data.get("case_name", "test_case") if isinstance(case_data, dict) else "test_case"
-        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in case_name).strip("_")
-        if not safe_name:
-            safe_name = "test_case"
+        safe_name = "".join(c if c.isascii() and (c.isalnum() or c == "_") else "_" for c in case_name).strip("_")
+        if not safe_name or not safe_name.isidentifier():
+            safe_name = "generated_flow"
 
-        lines.append(f"    def test_{safe_name}(self, page: Page):")
+        lines.append(f"def test_{safe_name}(page: Page):")
         if target_url:
-            lines.append(f'        page.goto("{target_url}")')
+            lines.append(f'    page.goto("{target_url}")')
+            lines.append('    page.wait_for_load_state("domcontentloaded")')
 
+        last_fill_value = ""
+        last_fill_is_search = False
         for step in steps:
             if not isinstance(step, dict):
                 continue
@@ -557,29 +826,56 @@ class ScriptGenerationAgent(NewBaseAgent):
             locator = step.get("locator", "")
             value = step.get("value", "")
             desc = step.get("description") or step.get("step", "")
+            if not action and desc:
+                if any(tok in desc for tok in ("输入", "填写", "填入")) or "fill" in desc.lower():
+                    action = "fill"
+                elif any(tok in desc for tok in ("点击", "单击")) or "click" in desc.lower():
+                    action = "click"
 
-            if not locator and desc:
+            if not locator and action in {"fill", "input", "type"} and fill_expr:
+                locator = fill_expr
+            elif not locator and action in {"click", "submit"} and click_expr:
+                locator = click_expr
+            elif not locator and desc:
                 for key, val in elem_map.items():
                     if key in desc.lower():
                         locator = val
                         break
+            if not locator and desc:
+                if any(tok in desc for tok in ("输入", "填写", "搜索")) and fill_expr:
+                    locator = fill_expr
+                elif any(tok in desc for tok in ("点击", "单击")) and click_expr:
+                    locator = click_expr
+
+            def _target(loc: str) -> str:
+                if loc.startswith("page."):
+                    return loc
+                return f'page.locator("{loc}")'
 
             if action == "goto" and value:
-                lines.append(f'        page.goto("{value}")')
+                if value.rstrip("/") != (target_url or "").rstrip("/"):
+                    lines.append(f'    page.goto("{value}")')
             elif action == "fill" and locator:
-                lines.append(f'        page.locator("{locator}").fill("{value}")')
+                fill_value = value or infer_fill_value(step, case_data)
+                last_fill_value = fill_value or last_fill_value
+                desc_text = str(desc or "")
+                last_fill_is_search = any(tok in desc_text.lower() for tok in ("搜索", "search", "查询"))
+                lines.append(f'    {_target(locator)}.fill("{fill_value}")')
             elif action == "click" and locator:
-                lines.append(f'        page.locator("{locator}").click()')
+                lines.append(f"    {_target(locator)}.click()")
+                lines.append('    page.wait_for_load_state("domcontentloaded")')
             elif action == "verify_visible" and locator:
-                lines.append(f'        expect(page.locator("{locator}")).to_be_visible()')
+                lines.append(f"    expect({_target(locator)}).to_be_visible()")
             elif action == "verify_text" and locator:
-                lines.append(f'        expect(page.locator("{locator}")).to_have_text("{value}")')
+                lines.append(f'    expect({_target(locator)}).to_have_text("{value}")')
             elif action == "wait":
-                lines.append(f'        page.wait_for_timeout(2000)')
-            elif desc:
-                lines.append(f"        # TODO: {desc}")
-                if locator:
-                    lines.append(f'        # locator: {locator}')
+                continue
+
+        if last_fill_value and last_fill_is_search:
+            from urllib.parse import quote
+            encoded = quote(last_fill_value, safe="")
+            pattern = f"{re.escape(encoded)}|{re.escape(last_fill_value)}"
+            lines.append(f'    expect(page).to_have_url(re.compile(r"{pattern}"))')
 
         for assertion in assertions:
             if not isinstance(assertion, dict):
@@ -588,18 +884,29 @@ class ScriptGenerationAgent(NewBaseAgent):
             alocator = assertion.get("locator", "")
             aexpected = assertion.get("expected", "")
             if atype == "visible" and alocator:
-                lines.append(f'        expect(page.locator("{alocator}")).to_be_visible()')
+                target = alocator if str(alocator).startswith("page.") else f'page.locator("{alocator}")'
+                lines.append(f"    expect({target}).to_be_visible()")
             elif atype == "text" and alocator:
-                lines.append(f'        expect(page.locator("{alocator}")).to_have_text("{aexpected}")')
-            elif atype == "url":
-                lines.append(f'        expect(page).to_have_url("{aexpected}")')
+                lines.append(f'    expect(page.locator("{alocator}")).to_have_text("{aexpected}")')
+            elif atype == "url" and not last_fill_value:
+                lines.append(f'    expect(page).to_have_url("{aexpected}")')
+
+        case_blob = " ".join(
+            str((case_data or {}).get(k) or "")
+            for k in ("description", "requirement", "case_name")
+        ) if isinstance(case_data, dict) else ""
+        if "登录成功" in case_blob and "登录成功" not in "\n".join(lines):
+            lines.append('    expect(page.get_by_text("登录成功")).to_be_visible()')
 
         if not steps and not assertions:
-            lines.append("        # TODO: 请手动补充测试步骤")
-            lines.append("        pass")
+            raise ValueError("无法确定稳定定位器，拒绝生成仅含 TODO 的模板脚本")
 
-        lines.append("")
-        return "\n".join(lines)
+        generated = "\n".join(lines) + "\n"
+        from app.agent.script.locator_builder import script_has_invalid_locators
+        invalid = script_has_invalid_locators(generated)
+        if invalid:
+            raise ValueError(invalid)
+        return generated
 
     # ==================== LLM 调用 ====================
 

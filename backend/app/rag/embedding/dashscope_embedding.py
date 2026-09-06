@@ -88,6 +88,8 @@ class DashScopeEmbedding(BaseEmbedding):
                 json={
                     "model": self.model_name,
                     "input": text,
+                    "dimensions": self.dim,
+                    "encoding_format": "float",
                 },
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -120,6 +122,8 @@ class DashScopeEmbedding(BaseEmbedding):
                     json={
                         "model": self.model_name,
                         "input": batch,
+                        "dimensions": self.dim,
+                        "encoding_format": "float",
                     },
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
@@ -145,6 +149,8 @@ class DashScopeEmbedding(BaseEmbedding):
                 json={
                     "model": self.model_name,
                     "input": texts,
+                    "dimensions": self.dim,
+                    "encoding_format": "float",
                 },
                 headers={
                     "Authorization": f"Bearer {self.api_key}",

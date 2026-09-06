@@ -51,8 +51,9 @@ export default function ApiCaseImport({ visible, onClose, onImported }: ApiCaseI
     }
     setImporting(true);
     try {
-      const res = await importFromSwagger({ content: swaggerContent, base_url: baseUrl || undefined });
-      message.success(`导入成功: 共 ${res.imported} 个用例`);
+      const res: any = await importFromSwagger({ content: swaggerContent, base_url: baseUrl || undefined });
+      const imported = res?.data?.imported_count ?? res?.imported_count ?? 0;
+      message.success(`导入成功: 共 ${imported} 个用例`);
       resetForm();
       onImported();
     } catch (e: any) {

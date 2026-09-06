@@ -14,7 +14,7 @@ import enum
 from sqlalchemy import (
     Column, String, Integer, Text, Boolean, Float, Index,
 )
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from app.db.types import MEDIUMTEXT
 from sqlalchemy import Enum as SAEnum
 
 from app.models.base import OwnedModel

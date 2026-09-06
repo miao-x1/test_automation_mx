@@ -99,6 +99,8 @@ class ExecutionAgent(NewBaseAgent):
         os.makedirs(script_dir, exist_ok=True)
         script_path = os.path.join(script_dir, f"task_{task_id}_exec_{execution_id}.py")
 
+        hang_timer = None
+        timed_out = False
         try:
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(enhanced_script)
@@ -128,6 +130,17 @@ class ExecutionAgent(NewBaseAgent):
                 bufsize=1,
             )
 
+            def _kill_hung_process():
+                nonlocal timed_out
+                if proc.poll() is None:
+                    timed_out = True
+                    proc.kill()
+                    self._emit_log(on_log, "执行异常", 100, "测试执行超时，已停止浏览器")
+
+            hang_timer = threading.Timer(90, _kill_hung_process)
+            hang_timer.daemon = True
+            hang_timer.start()
+
             # 实时读取输出
             progress = 20
             for line in iter(proc.stdout.readline, b""):
@@ -150,7 +163,25 @@ class ExecutionAgent(NewBaseAgent):
                 elif line_str.startswith("##TEST_FAIL##"):
                     parts = line_str.replace("##TEST_FAIL##", "").strip()
                     failed_count += 1
+                    result["error_message"] = parts
                     self._emit_log(on_log, f"失败: {parts}", progress, f"✗ 测试失败: {parts}")
+
+                elif line_str.startswith("##LOCATOR_DIAG##"):
+                    raw_diag = line_str.replace("##LOCATOR_DIAG##", "").strip()
+                    try:
+                        result["locator_diagnosis"] = json.loads(raw_diag)
+                    except Exception:
+                        result["locator_diagnosis"] = {"raw": raw_diag[:1000]}
+                    diag = result["locator_diagnosis"] if isinstance(result.get("locator_diagnosis"), dict) else {}
+                    self._emit_log(
+                        on_log,
+                        "定位诊断",
+                        progress,
+                        (
+                            f"url={diag.get('url')} locator={diag.get('locator')} "
+                            f"count={diag.get('count')} screenshot={diag.get('screenshot')}"
+                        ),
+                    )
 
                 elif line_str.startswith("##STEP##"):
                     step_info = line_str.replace("##STEP##", "").strip()
@@ -160,6 +191,7 @@ class ExecutionAgent(NewBaseAgent):
                     self._emit_log(on_log, "执行日志", progress, line_str)
 
             proc.wait()
+            hang_timer.cancel()
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
 
@@ -174,7 +206,14 @@ class ExecutionAgent(NewBaseAgent):
             if os.path.exists(screenshot_file):
                 result["screenshot_path"] = screenshot_file
 
-            if proc.returncode == 0:
+            if timed_out:
+                result["status"] = "failed"
+                result["error_message"] = result.get("error_message") or "测试执行超时"
+                if failed_count == 0:
+                    result["failed_count"] = 1
+                    failed_count = 1
+                self._emit_log(on_log, "执行失败", 90, "测试执行超时")
+            elif proc.returncode == 0:
                 result["status"] = "success"
                 self._emit_log(on_log, "执行完成", 90, f"脚本执行完成 | 通过: {success_count}, 失败: {failed_count}, 耗时: {duration:.1f}s")
             else:
@@ -192,6 +231,10 @@ class ExecutionAgent(NewBaseAgent):
             self._emit_log(on_log, "任务完成", 100, "测试报告已生成")
 
         except Exception as e:
+            try:
+                hang_timer.cancel()
+            except Exception:
+                pass
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
             err_msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
@@ -232,6 +275,8 @@ class ExecutionAgent(NewBaseAgent):
         screenshot_file = os.path.join(screenshots_dir, f"exec_{execution_id}_final.png")
 
         wrapper = f'''"""自动执行脚本 - 由ExecutionAgent生成"""
+import json
+import re
 import sys
 import traceback
 
@@ -258,6 +303,8 @@ context.add_init_script("""
     Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
 """)
 page = context.new_page()
+page.set_default_timeout(20000)
+page.set_default_navigation_timeout(25000)
 
 # 注入 page fixture 到全局
 import builtins
@@ -273,11 +320,20 @@ _test_funcs = []
 for _name, _obj in sorted(globals().items()):
     if _name.startswith("test_") and callable(_obj):
         _test_funcs.append((_name, _obj))
+    elif inspect.isclass(_obj) and _name.startswith("Test"):
+        _inst = _obj()
+        for _mname, _meth in inspect.getmembers(_inst, predicate=inspect.ismethod):
+            if _mname.startswith("test_"):
+                _test_funcs.append((_mname, _meth))
 
 _log("STEP", f"发现 {{len(_test_funcs)}} 个测试用例")
 
 _passed = 0
 _failed = 0
+
+if not _test_funcs:
+    _log("TEST_FAIL", "未发现可执行的 test_ 函数，拒绝将空执行记为成功")
+    _failed = 1
 
 for _name, _func in _test_funcs:
     _log("TEST_START", _name)
@@ -288,6 +344,37 @@ for _name, _func in _test_funcs:
     except Exception as _e:
         _err = f"{{_name}}: {{type(_e).__name__}}: {{_e}}"
         _log("TEST_FAIL", _err)
+        try:
+            _diag = {{
+                "url": page.url,
+                "error": str(_e),
+                "locator": "",
+                "count": None,
+                "html_snippet": "",
+                "screenshot": r"{screenshot_file}",
+            }}
+            _m = re.search(r"(page\\.(?:get_by_\\w+|locator)\\([^)]*\\))", str(_e))
+            if _m:
+                _diag["locator"] = _m.group(1)
+                try:
+                    _loc = eval(_m.group(1), {{"page": page}})
+                    _diag["count"] = _loc.count()
+                    if _diag["count"]:
+                        _diag["html_snippet"] = (_loc.first.evaluate("el => el.outerHTML") or "")[:500]
+                except Exception as _pe:
+                    _diag["probe_error"] = str(_pe)
+            if not _diag["html_snippet"]:
+                try:
+                    _diag["html_snippet"] = (page.content() or "")[:800]
+                except Exception:
+                    pass
+            try:
+                page.screenshot(path=r"{screenshot_file}")
+            except Exception:
+                pass
+            _log("LOCATOR_DIAG", json.dumps(_diag, ensure_ascii=False))
+        except Exception:
+            traceback.print_exc()
         _failed += 1
         traceback.print_exc()
 
@@ -581,10 +668,10 @@ sys.exit(1 if _failed > 0 else 0)
         combined = f"{log_content or ''}\n{error_message or ''}".lower()
 
         # 常见错误模式匹配
-        if "timeout" in combined or "waiting for selector" in combined:
-            fail_step = "元素等待超时"
-            root_cause = "页面元素未在超时时间内出现，可能是页面加载慢或定位器不正确"
-            suggestion = "建议增加等待时间、使用wait_for_load_state或检查定位器是否正确"
+        if "timeout" in combined or "waiting for selector" in combined or "locator." in combined or "get_by_" in combined:
+            fail_step = "元素未找到"
+            root_cause = "目标元素在当前页面不存在，或定位方式无法匹配"
+            suggestion = "请核对当前页面、目标元素和已尝试的定位方式"
         elif "navigation" in combined or "net::err" in combined:
             fail_step = "页面导航失败"
             root_cause = "页面URL无法访问或导航超时"

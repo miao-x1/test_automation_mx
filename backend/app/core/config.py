@@ -35,6 +35,75 @@ class Settings(BaseSettings):
 
     # 安全配置
     SECRET_KEY: str = Field(default="test-automation-secret-key-change-in-production", description="JWT密钥")
+    CORS_ORIGINS: str = Field(
+        default="http://localhost,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+        description="CORS 白名单，逗号分隔。生产环境应设为前端实际域名",
+    )
+    ENABLE_DOCS: Optional[bool] = Field(default=None, description="是否暴露 /docs /redoc；默认开发开、生产关")
+    ALLOW_REGISTER: Optional[bool] = Field(default=None, description="是否开放注册；默认开发开、生产关")
+    REGISTER_REQUIRE_APPROVAL: bool = Field(default=False, description="注册后需管理员审批才可登录")
+    AUTH_REQUIRED: bool = Field(default=True, description="除公开路径外强制登录")
+    ENABLE_MCP: Optional[bool] = Field(default=None, description="是否开放 MCP 端点；默认开发开、生产关")
+    COOKIE_SECURE: bool = Field(default=False, description="认证 Cookie 设置 Secure（HTTPS）")
+    RATE_LIMIT_ENABLED: bool = Field(default=True, description="是否启用接口限流")
+    RATE_LIMIT_LLM_PER_MINUTE: int = Field(default=30, description="LLM/执行类接口每 IP 每分钟上限")
+    RATE_LIMIT_LOGIN_PER_MINUTE: int = Field(default=10, description="登录接口每 IP 每分钟上限")
+    ADMIN_USERNAME: Optional[str] = Field(default=None, description="启动时创建的种子管理员用户名")
+    ADMIN_PASSWORD: Optional[str] = Field(default=None, description="启动时创建的种子管理员密码")
+    CAPTCHA_REQUIRED: bool = Field(default=True, description="登录/注册/发短信是否校验图形验证码")
+    SMS_PROVIDER: str = Field(default="console", description="短信通道: console/http/aliyun")
+    SMS_ECHO_CODE: bool = Field(default=False, description="接口是否回显验证码（仅本地演示，公网必须关闭）")
+    SMS_RESEND_SECONDS: int = Field(default=60, description="同一手机号重发间隔")
+    SMS_CODE_TTL_SECONDS: int = Field(default=300, description="短信验证码有效期")
+    SMS_WEBHOOK_URL: Optional[str] = Field(default=None, description="HTTP 短信网关")
+    SMS_WEBHOOK_TOKEN: Optional[str] = Field(default=None, description="HTTP 短信网关令牌")
+    SMS_ACCESS_KEY_ID: Optional[str] = Field(default=None, description="阿里云 AccessKeyId")
+    SMS_ACCESS_KEY_SECRET: Optional[str] = Field(default=None, description="阿里云 AccessKeySecret")
+    SMS_SIGN_NAME: Optional[str] = Field(default=None, description="短信签名")
+    SMS_TEMPLATE_CODE: Optional[str] = Field(default=None, description="短信模板编码")
+
+    @property
+    def sms_echo_enabled(self) -> bool:
+        return bool(self.SMS_ECHO_CODE)
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() == "production"
+
+    @property
+    def ai_configured(self) -> bool:
+        key = (self.QWEN_API_KEY or "").strip()
+        return bool(key) and key not in {
+            "sk-your-dashscope-api-key",
+            "your-api-key",
+            "changeme",
+        }
+
+    @property
+    def cors_origin_list(self) -> list:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def docs_enabled(self) -> bool:
+        if self.ENABLE_DOCS is not None:
+            return self.ENABLE_DOCS
+        return not self.is_production
+
+    @property
+    def register_enabled(self) -> bool:
+        if self.ALLOW_REGISTER is not None:
+            return self.ALLOW_REGISTER
+        return not self.is_production
+
+    @property
+    def mcp_enabled(self) -> bool:
+        if self.ENABLE_MCP is not None:
+            return self.ENABLE_MCP
+        return not self.is_production
+
+    @property
+    def cookie_secure_enabled(self) -> bool:
+        return self.COOKIE_SECURE or self.is_production
     
     # 服务配置
     HOST: str = Field(default="0.0.0.0", description="服务地址")
@@ -77,7 +146,7 @@ class Settings(BaseSettings):
     SCREENSHOT_DIR: str = Field(default="screenshots", description="执行截图输出目录")
     
     # Agent配置
-    AGENT_TYPE: str = Field(default="mock", description="Agent类型")
+    AGENT_TYPE: str = Field(default="autogen", description="Agent类型")
     AGENT_TIMEOUT: int = Field(default=300, description="Agent超时时间")
     
     # AI服务配置（预留）
@@ -91,6 +160,7 @@ class Settings(BaseSettings):
     QWEN_API_KEY: Optional[str] = Field(default=None, description="通义千问API密钥(DASHSCOPE)")
     QWEN_API_URL: str = Field(default="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", description="通义千问API地址")
     QWEN_MODEL: str = Field(default="qwen-vl-plus", description="通义千问视觉模型名称")
+    QWEN_TEXT_MODEL: str = Field(default="qwen-plus", description="通义千问文本模型，禁止把 vl 模型用于纯文本")
 
     OLLAMA_HOST: str = Field(default="http://localhost:11434", description="Ollama地址")
 
@@ -132,7 +202,7 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = Field(default="neo4j_secure_password", description="Neo4j密码")
 
     # ===== R2R / AnythingChat 知识服务配置 =====
-    KNOWLEDGE_PROVIDER: str = Field(default="r2r", description="知识提供者: r2r | local")
+    KNOWLEDGE_PROVIDER: str = Field(default="local", description="知识提供者: r2r | local")
     R2R_BASE_URL: str = Field(default="http://localhost:7272", description="R2R/AnythingChat服务地址")
     R2R_API_KEY: Optional[str] = Field(default=None, description="R2R API Key")
 

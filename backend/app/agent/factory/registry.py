@@ -34,7 +34,6 @@ AgentRegistry - Agent 自动注册
 - TaskExecutor          - 定时执行
 - ScriptParser          - 脚本解析
 - ScriptValidator       - 脚本校验
-- MockAgent             - Mock
 """
 import importlib
 from typing import Dict, List, Tuple, Type
@@ -150,13 +149,6 @@ _AGENT_DEFINITIONS: List[Tuple[str, str, str, str, List[AgentCapability]]] = [
         "脚本复用Agent",
         [AgentCapability.REUSE_CHECK],
     ),
-    (
-        "graph_search_agent",
-        "app.agent.graph_search_agent",
-        "GraphSearchAgent",
-        "图搜索Agent",
-        [AgentCapability.GRAPH_SEARCH],
-    ),
     # ---- 流程与策略 ----
     (
         "relation_agent",
@@ -244,21 +236,6 @@ _AGENT_DEFINITIONS: List[Tuple[str, str, str, str, List[AgentCapability]]] = [
         "InputRouter",
         "输入路由Agent",
         [AgentCapability.INTENT_ROUTE],
-    ),
-    (
-        "router_agent",
-        "app.agent.router_agent",
-        "RouterAgent",
-        "三库路由Agent",
-        [AgentCapability.INTENT_ROUTE],
-    ),
-    # ---- Mock ----
-    (
-        "mock_agent",
-        "app.agent.mock_agent",
-        "MockAgent",
-        "Mock Agent",
-        [AgentCapability.MOCK],
     ),
     (
         "playwright_agent",

@@ -5,7 +5,7 @@
 """
 import enum
 from sqlalchemy import Column, String, Integer, Text, Boolean
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from app.db.types import MEDIUMTEXT
 from app.models.base import OwnedModel
 
 

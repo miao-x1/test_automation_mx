@@ -82,27 +82,19 @@ async def upload_script(
 
 @router.post("/upload_images", summary="上传多张图片")
 async def upload_images(files: List[UploadFile] = File(..., description="UI截图或原型图")):
-    """上传多张图片，返回图片路径列表"""
-    allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/webp"]
+    """上传多张图片。与统一 upload_security 同级校验，伪造图片不得落盘。"""
+    from app.core.upload_security import validate_upload_file
+
     upload_dir = Path(settings.UPLOAD_DIR) / "requirement_images"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_paths = []
     for file in files:
-        if file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file.content_type}")
-
-        content = await file.read()
-        if len(content) > settings.MAX_UPLOAD_SIZE:
-            raise HTTPException(status_code=400, detail=f"文件 {file.filename} 大小超出限制")
-
-        ext = Path(file.filename or "").suffix or ".png"
-        filename = f"{uuid.uuid4().hex}{ext}"
+        validated = await validate_upload_file(file, declared_category="image")
+        filename = f"{uuid.uuid4().hex}{validated.ext}"
         file_path = upload_dir / filename
-
         with open(file_path, "wb") as f:
-            f.write(content)
-
+            f.write(validated.content)
         relative_path = f"requirement_images/{filename}"
         saved_paths.append(relative_path)
         log.info(f"需求图片上传成功 | 文件: {filename}")

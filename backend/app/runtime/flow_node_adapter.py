@@ -23,8 +23,20 @@ import uuid
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from autogen_agentchat.base import ChatAgent, Response, TaskResult
-from autogen_agentchat.messages import TextMessage, BaseChatMessage, BaseAgentEvent
 from autogen_core import CancellationToken
+
+try:
+    from autogen_agentchat.messages import TextMessage, BaseChatMessage, BaseAgentEvent
+except ImportError:  # autogen-agentchat < 0.7.4 部分发行版无 BaseChatMessage
+    from autogen_agentchat.messages import TextMessage
+    try:
+        from autogen_agentchat.messages import BaseAgentEvent
+    except ImportError:
+        from autogen_agentchat.messages import AgentEvent as BaseAgentEvent
+    try:
+        from autogen_agentchat.messages import ChatMessage as BaseChatMessage
+    except ImportError:
+        BaseChatMessage = TextMessage  # type: ignore[misc,assignment]
 
 logger = logging.getLogger(__name__)
 

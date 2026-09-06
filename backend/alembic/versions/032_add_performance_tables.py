@@ -55,7 +55,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(20), nullable=False, server_default="pending",
                   comment="状态: pending/planning/scripting/running/completed/failed"),
         sa.Column("error_message", sa.Text(), nullable=True, comment="错误信息"),
-        sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default="False",
+        sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default="0",
                   comment="软删除"),
         sa.PrimaryKeyConstraint("id"),
         comment="性能测试任务表",

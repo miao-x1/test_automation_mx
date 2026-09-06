@@ -42,11 +42,18 @@ class PlaywrightAgent(NewBaseAgent):
 
         yield {"step": "生成Playwright脚本", "progress": 20, "message": "正在分析元素定位器..."}
 
-        url = page_url or "https://TODO_REPLACE_WITH_REAL_URL"
+        from app.agent.script.locator_builder import enrich_elements, extract_url, usable_elements
+
+        url = extract_url(page_url, elements)
+        elements = enrich_elements(elements or [])
+        if not url:
+            raise ValueError("缺少真实目标 URL，无法生成可执行 Playwright 脚本")
 
         # 筛选有定位器的元素
-        locatable_elements = [e for e in elements if e.get("locator")]
+        locatable_elements = usable_elements(elements)
         log.info(f"Task {task_id} | 可定位元素: {len(locatable_elements)}/{len(elements)}")
+        if not locatable_elements:
+            raise ValueError("无法确定稳定定位器，拒绝生成空 locator 脚本")
 
         # 按类型分组
         inputs = [e for e in locatable_elements if e.get("type") in ("input", "searchbox", "textarea")]
@@ -141,10 +148,10 @@ class PlaywrightAgent(NewBaseAgent):
             'def test_search_function(page: Page):',
             '    """测试搜索功能"""',
             f'    page.goto("{self._escape(url)}")',
-            f'    page.locator("{self._escape(self._fix_locator(search_input["locator"]))}").first.fill("测试搜索")',
+            f'    {self._locator_expr(search_input)}.fill("测试搜索")',
         ]
         if search_btn:
-            lines.append(f'    page.locator("{self._escape(self._fix_locator(search_btn["locator"]))}").first.click()')
+            lines.append(f'    {self._locator_expr(search_btn)}.click()')
         else:
             lines.append('    page.keyboard.press("Enter")')
         lines.extend([
@@ -163,10 +170,8 @@ class PlaywrightAgent(NewBaseAgent):
             f'    page.goto("{self._escape(url)}")',
         ]
         for menu in menus:
-            locator = menu["locator"]
-            # 使用 .first 避免 strict mode violation
             lines.append(f'    # 验证 {menu.get("name", "菜单")} 可见')
-            lines.append(f'    expect(page.locator("{self._escape(self._fix_locator(locator))}").first).to_be_visible()')
+            lines.append(f'    expect({self._locator_expr(menu)}).to_be_visible()')
         lines.extend(['', ''])
         return lines
 
@@ -180,7 +185,7 @@ class PlaywrightAgent(NewBaseAgent):
         for inp in inputs:
             test_value = self._get_test_value(inp)
             lines.append(f'    # 填写 {inp.get("name", "输入框")}')
-            lines.append(f'    page.locator("{self._escape(self._fix_locator(inp["locator"]))}").first.fill("{self._escape(test_value)}")')
+            lines.append(f'    {self._locator_expr(inp)}.fill("{self._escape(test_value)}")')
         lines.extend(['', ''])
         return lines
 
@@ -193,10 +198,8 @@ class PlaywrightAgent(NewBaseAgent):
         ]
         for i, btn in enumerate(buttons):
             btn_name = btn.get("name", "按钮")
-            locator = btn["locator"]
-            # 使用 .first 避免 strict mode violation（多个按钮可能匹配同一选择器）
             lines.append(f'    # 验证 {btn_name} 可见')
-            lines.append(f'    expect(page.locator("{self._escape(self._fix_locator(locator))}").first).to_be_visible()')
+            lines.append(f'    expect({self._locator_expr(btn)}).to_be_visible()')
         lines.extend(['', ''])
         return lines
 
@@ -209,10 +212,8 @@ class PlaywrightAgent(NewBaseAgent):
         ]
         for i, link in enumerate(links):
             link_name = link.get("name", "链接")
-            locator = link["locator"]
-            # 使用 .first 避免 strict mode violation（多个链接可能匹配同一选择器）
             lines.append(f'    # 验证 {link_name} 可见')
-            lines.append(f'    expect(page.locator("{self._escape(self._fix_locator(locator))}").first).to_be_visible()')
+            lines.append(f'    expect({self._locator_expr(link)}).to_be_visible()')
         lines.extend(['', ''])
         return lines
 
@@ -225,7 +226,7 @@ class PlaywrightAgent(NewBaseAgent):
         ]
         for sel in selects:
             lines.append(f'    # 选择 {sel.get("name", "下拉框")} 的第一个选项')
-            lines.append(f'    page.locator("{self._escape(self._fix_locator(sel["locator"]))}").first.select_option(index=0)')
+            lines.append(f'    {self._locator_expr(sel)}.select_option(index=0)')
         lines.extend(['', ''])
         return lines
 
@@ -244,6 +245,19 @@ class PlaywrightAgent(NewBaseAgent):
         if "搜索" in name or "search" in placeholder:
             return "测试搜索"
         return "test_value"
+
+    def _locator_expr(self, element: Dict) -> str:
+        expr = (element.get("playwright_expr") or "").strip()
+        if expr.startswith("page."):
+            return f"{expr}.first"
+        from app.agent.script.locator_builder import build_playwright_locator
+        built = build_playwright_locator(element)
+        if built and built.startswith("page."):
+            return f"{built}.first"
+        loc = self._fix_locator(element.get("locator") or "")
+        if not loc:
+            raise ValueError("无法确定稳定定位器")
+        return f'page.locator("{self._escape(loc)}").first'
 
     @staticmethod
     def _escape(s: str) -> str:

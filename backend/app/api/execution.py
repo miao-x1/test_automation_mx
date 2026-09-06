@@ -31,6 +31,8 @@ from app.core.config import settings
 from app.core.logger import log
 from app.core.auth import require_auth
 from app.models.user import User
+from app.services.workspace_service import ADMIN, RUN, VIEW, require_owned_project, require_project, visible_project_ids
+from sqlalchemy import or_, and_
 
 router = APIRouter()
 
@@ -66,12 +68,11 @@ class BatchDeleteRequest(BaseModel):
 # ===== 辅助函数 =====
 
 def _check_execution_owner(db: Session, execution_id: int, user: User) -> ExecutionRecord:
-    """检查执行记录是否属于当前用户"""
+    """检查执行记录是否属于当前用户所在项目"""
     record = db.query(ExecutionRecord).filter(ExecutionRecord.id == execution_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="执行记录不存在")
-    if record.user_id is not None and record.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权访问")
+    require_owned_project(db, user, record.project_id, VIEW, fallback_user_id=record.user_id)
     return record
 
 
@@ -540,11 +541,23 @@ async def list_executions(
     suite_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    project_id: Optional[int] = Query(default=None),
     user: User = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    """获取当前用户的执行记录（分页，支持多维度过滤）"""
-    query = db.query(ExecutionRecord).filter(ExecutionRecord.user_id == user.id)
+    """获取当前项目的执行记录（分页，支持多维度过滤）"""
+    query = db.query(ExecutionRecord)
+    if project_id:
+        require_project(db, user, project_id, VIEW)
+        query = query.filter(ExecutionRecord.project_id == project_id)
+    else:
+        ids = visible_project_ids(db, user)
+        query = query.filter(
+            or_(
+                ExecutionRecord.project_id.in_(ids or [0]),
+                and_(ExecutionRecord.project_id.is_(None), ExecutionRecord.user_id == user.id),
+            )
+        )
 
     if status:
         query = query.filter(ExecutionRecord.status == status)
@@ -672,7 +685,10 @@ async def delete_execution(
     db: Session = Depends(get_db),
 ):
     """删除指定的执行记录"""
-    record = _check_execution_owner(db, execution_id, user)
+    record = db.query(ExecutionRecord).filter(ExecutionRecord.id == execution_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+    require_owned_project(db, user, record.project_id, ADMIN, fallback_user_id=record.user_id)
 
     # 清理关联文件
     if record.report_path:
@@ -706,11 +722,12 @@ async def batch_delete_executions(
     """批量删除指定的执行记录（仅当前用户）"""
     deleted_count = 0
     for eid in req.ids:
-        record = db.query(ExecutionRecord).filter(
-            ExecutionRecord.id == eid,
-            ExecutionRecord.user_id == user.id,
-        ).first()
+        record = db.query(ExecutionRecord).filter(ExecutionRecord.id == eid).first()
         if record:
+            try:
+                require_owned_project(db, user, record.project_id, ADMIN, fallback_user_id=record.user_id)
+            except HTTPException:
+                continue
             # 清理关联文件
             if record.report_path:
                 try:
@@ -888,9 +905,13 @@ async def list_analysis(
     db: Session = Depends(get_db),
 ):
     """获取有分析结果的执行记录列表"""
+    ids = visible_project_ids(db, user)
     query = db.query(ExecutionRecord).filter(
-        ExecutionRecord.user_id == user.id,
         ExecutionRecord.analysis_result.isnot(None),
+        or_(
+            ExecutionRecord.project_id.in_(ids or [0]),
+            and_(ExecutionRecord.project_id.is_(None), ExecutionRecord.user_id == user.id),
+        ),
     )
     if status:
         query = query.filter(ExecutionRecord.status == status)
@@ -927,11 +948,12 @@ async def batch_delete_analysis(
     """批量删除分析结果"""
     deleted = 0
     for eid in req.ids:
-        record = db.query(ExecutionRecord).filter(
-            ExecutionRecord.id == eid,
-            ExecutionRecord.user_id == user.id,
-        ).first()
+        record = db.query(ExecutionRecord).filter(ExecutionRecord.id == eid).first()
         if record and record.analysis_result:
+            try:
+                require_owned_project(db, user, record.project_id, ADMIN, fallback_user_id=record.user_id)
+            except HTTPException:
+                continue
             record.analysis_result = None
             deleted += 1
     db.commit()
@@ -966,6 +988,10 @@ async def execute_by_task(
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
+    access = require_owned_project(db, user, task.project_id, RUN, fallback_user_id=task.user_id)
+    bound_project_id = task.project_id or access["project"].id
+    if not task.project_id:
+        task.project_id = bound_project_id
 
     # 查找脚本
     script = db.query(Script).filter(Script.task_id == task_id).first()
@@ -984,6 +1010,7 @@ async def execute_by_task(
         trigger_source="manual",
         user_id=user.id,
         created_by=user.id,
+        project_id=bound_project_id,
     )
     db.add(record)
     db.commit()
@@ -1024,10 +1051,12 @@ async def list_by_task(
     db: Session = Depends(get_db),
 ):
     """按任务ID查询关联的执行记录"""
-    query = db.query(ExecutionRecord).filter(
-        ExecutionRecord.task_id == task_id,
-        ExecutionRecord.user_id == user.id,
-    )
+    from app.models.task import Task
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    require_owned_project(db, user, task.project_id, VIEW, fallback_user_id=task.user_id)
+    query = db.query(ExecutionRecord).filter(ExecutionRecord.task_id == task_id)
 
     total = query.count()
     records = query.order_by(ExecutionRecord.created_at.desc()).offset(

@@ -5,7 +5,7 @@
 """
 import enum
 from sqlalchemy import Column, String, Integer, Text, ForeignKey, Index
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from app.db.types import MEDIUMTEXT
 from app.models.base import OwnedModel
 
 
@@ -59,6 +59,14 @@ class RequirementTask(OwnedModel):
         Text,
         nullable=True,
         comment="AI生成的Playwright脚本"
+    )
+
+    project_id = Column(
+        Integer,
+        ForeignKey("project.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属项目",
     )
 
     task_id = Column(

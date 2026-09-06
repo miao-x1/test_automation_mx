@@ -22,6 +22,7 @@ import {
 } from '../../services/requirementInput';
 import AIClassifyCard from '../../components/AIClassifyCard';
 import { classifyTestType, type ClassifyResult } from '../../services/testTypeClassifier';
+import { assertUploadAllowed, formatUploadError } from '../../utils/uploadGuard';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -78,13 +79,19 @@ export default function RequirementInputPage() {
         return '';
       }
     } catch (e: any) {
-      message.error(`上传失败: ${e?.message}`);
+      message.error(`上传失败: ${formatUploadError(e)}`);
       return '';
     }
   };
 
   // 文件上传前处理
   const beforeUpload = (category: FileCategory) => async (file: File) => {
+    try {
+      await assertUploadAllowed(file, category);
+    } catch (e) {
+      message.error(formatUploadError(e));
+      return false;
+    }
     await handleUpload(file, category);
     return false; // 阻止自动上传
   };
@@ -244,6 +251,7 @@ export default function RequirementInputPage() {
                     >
                       <p className="ant-upload-drag-icon"><InboxOutlined /></p>
                       <p className="ant-upload-text">点击或拖拽上传UI截图</p>
+                      <p className="ant-upload-hint">PNG / JPG / WEBP / GIF / BMP，单文件不超过 10MB</p>
                     </Dragger>
                   ),
                 },
@@ -263,6 +271,7 @@ export default function RequirementInputPage() {
                     >
                       <p className="ant-upload-drag-icon"><InboxOutlined /></p>
                       <p className="ant-upload-text">上传PDF需求文档</p>
+                      <p className="ant-upload-hint">仅 PDF，单文件不超过 10MB</p>
                     </Dragger>
                   ),
                 },
@@ -282,6 +291,7 @@ export default function RequirementInputPage() {
                     >
                       <p className="ant-upload-drag-icon"><InboxOutlined /></p>
                       <p className="ant-upload-text">上传Word需求文档</p>
+                      <p className="ant-upload-hint">DOC / DOCX，单文件不超过 10MB</p>
                     </Dragger>
                   ),
                 },

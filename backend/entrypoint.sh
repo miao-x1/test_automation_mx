@@ -38,9 +38,14 @@ conn.close()
 print(f'  数据库 {db_name} 已就绪')
 "
 
-# 3. 运行数据库迁移
+# 3. 运行数据库迁移（失败必须退出，禁止半迁移启动）
 echo "[3/4] 运行 Alembic 迁移..."
-alembic upgrade head || echo "  跳过迁移（可能已最新）"
+if ! alembic upgrade head; then
+    echo "MIGRATION_FAILED: alembic upgrade head 失败，拒绝启动 backend"
+    exit 1
+fi
+echo "MIGRATION_OK: alembic upgrade head 成功"
+alembic current
 
 # 4. 启动应用
 echo "[4/4] 启动 FastAPI..."

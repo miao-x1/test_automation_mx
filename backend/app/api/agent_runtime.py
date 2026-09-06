@@ -18,7 +18,7 @@ import logging
 import time
 import uuid
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -1129,40 +1129,49 @@ async def classify_test_type(req: ClassifyRequest):
             confidence: 0-1
         }
     """
-    classifier = AgentFactory.create("test_type_classifier")
+    if not (req.requirement or "").strip() and not req.urls and not req.images:
+        raise HTTPException(status_code=400, detail="需求内容不能为空")
 
-    if req.use_llm:
-        result = await classifier.execute(
-            requirement=req.requirement,
-            urls=req.urls,
-            script_content=req.script_content,
-            script_language=req.script_language,
-            images=req.images,
-            swagger_content=req.swagger_content,
-            db_schema=req.db_schema,
-            page_info=req.page_info,
+    try:
+        classifier = AgentFactory.create("test_type_classifier")
+        if req.use_llm:
+            result = await classifier.execute(
+                requirement=req.requirement,
+                urls=req.urls,
+                script_content=req.script_content,
+                script_language=req.script_language,
+                images=req.images,
+                swagger_content=req.swagger_content,
+                db_schema=req.db_schema,
+                page_info=req.page_info,
+            )
+        else:
+            result = classifier.classify_sync(
+                text=req.requirement,
+                urls=req.urls,
+                script_content=req.script_content,
+                script_language=req.script_language,
+                images=req.images,
+                swagger_content=req.swagger_content,
+                db_schema=req.db_schema,
+                page_info=req.page_info,
+            )
+        if not result or not result.get("test_type"):
+            raise RuntimeError("分类器未返回有效结果")
+        return ClassifyResponse(
+            test_type=result["test_type"],
+            platform=result["platform"],
+            framework=result["framework"],
+            confidence=result["confidence"],
+            reason=result.get("reason", ""),
+            scores=result.get("scores", {}),
+            detected_signals=result.get("detected_signals", []),
         )
-    else:
-        result = classifier.classify_sync(
-            text=req.requirement,
-            urls=req.urls,
-            script_content=req.script_content,
-            script_language=req.script_language,
-            images=req.images,
-            swagger_content=req.swagger_content,
-            db_schema=req.db_schema,
-            page_info=req.page_info,
-        )
-
-    return ClassifyResponse(
-        test_type=result["test_type"],
-        platform=result["platform"],
-        framework=result["framework"],
-        confidence=result["confidence"],
-        reason=result.get("reason", ""),
-        scores=result.get("scores", {}),
-        detected_signals=result.get("detected_signals", []),
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"测试类型分类失败: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"测试类型分类失败: {e}")
 
 
 # ================================================================== #

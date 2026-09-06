@@ -347,7 +347,12 @@ function HistoryTab() {
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
-    try { const res = await getRequirementTasks() as any; setHistory(Array.isArray(res?.data || res) ? (res?.data || res) : []); } catch { /* ignore */ }
+    try {
+      const res = await getRequirementTasks() as any;
+      const payload = res?.data || res;
+      const items = Array.isArray(payload) ? payload : (payload?.items || []);
+      setHistory(items);
+    } catch { /* ignore */ }
     setLoading(false);
   }, []);
 

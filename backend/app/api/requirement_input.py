@@ -212,46 +212,33 @@ async def upload_requirement_file(
 
     返回文件路径，后续可用于 /parse 接口。
     """
+    from app.core.upload_security import UploadRejected, validate_upload_file
+
     try:
-        # 获取文件扩展名
-        original_name = file.filename or "unknown"
-        ext = os.path.splitext(original_name)[1].lower()
-
-        # 自动判断文件类型
-        if file_category == "auto":
-            file_category = FILE_TYPE_MAP.get(ext, "unknown")
-
-        if file_category == "unknown":
-            return UploadResponse(
-                status="error",
-                error=f"不支持的文件类型: {ext}",
-            )
-
-        # 保存文件
-        file_id = uuid.uuid4().hex[:8]
-        save_name = f"{file_category}_{file_id}{ext}"
-        save_path = os.path.join(UPLOAD_DIR, save_name)
-
-        content = await file.read()
-        with open(save_path, "wb") as f:
-            f.write(content)
-
-        logger.info(f"文件上传成功 | category={file_category}, path={save_path}, size={len(content)}")
-
-        return UploadResponse(
-            status="success",
-            file_path=save_path,
-            file_type=file_category,
-            file_name=original_name,
-            file_size=len(content),
-        )
-
+        validated = await validate_upload_file(file, declared_category=file_category or "auto")
+    except UploadRejected:
+        raise
     except Exception as e:
         logger.error(f"文件上传失败: {e}", exc_info=True)
-        return UploadResponse(
-            status="error",
-            error=str(e),
-        )
+        raise
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    save_name = f"{validated.category}_{uuid.uuid4().hex[:8]}{os.path.splitext(validated.safe_name)[1]}"
+    save_path = os.path.join(UPLOAD_DIR, save_name)
+    with open(save_path, "wb") as f:
+        f.write(validated.content)
+
+    logger.info(
+        f"文件上传成功 | category={validated.category}, path={save_path}, size={validated.size}"
+    )
+
+    return UploadResponse(
+        status="success",
+        file_path=save_path,
+        file_type=validated.category,
+        file_name=validated.original_name,
+        file_size=validated.size,
+    )
 
 
 @router.post("/generate", summary="解析需求并直接生成测试用例(SSE流式)")

@@ -44,7 +44,16 @@ class AuditService:
     }
 
     # 不记录请求体的字段(避免泄露)
-    _NO_BODY_PATHS = {"/api/auth/login", "/api/auth/register"}
+    _NO_BODY_PATHS = {
+        "/api/auth/login",
+        "/api/auth/register",
+        "/auth/login",
+        "/auth/register",
+        "/auth/sms/send",
+        "/auth/password/reset",
+        "/api/auth/sms/send",
+        "/api/auth/password/reset",
+    }
 
     def log_operation(
         self,

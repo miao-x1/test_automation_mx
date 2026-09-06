@@ -347,9 +347,9 @@ class GraphFlowManager:
             "Defect": ("app.agents.flows.defect_agent", "DefectAgent"),
             "Export": ("app.agents.flows.export_agent", "ExportAgent"),
             # 可扩展节点（均复用 ReviewAgent）
-            "SecurityReview": ("app.agents.flows.review_agent", "ReviewAgent"),
-            "PerformanceReview": ("app.agents.flows.review_agent", "ReviewAgent"),
-            "AccessibilityReview": ("app.agents.flows.review_agent", "ReviewAgent"),
+            "SecurityReview": ("app.agent.case.review_agent", "ReviewAgent"),
+            "PerformanceReview": ("app.agent.case.review_agent", "ReviewAgent"),
+            "AccessibilityReview": ("app.agent.case.review_agent", "ReviewAgent"),
         }
         entry = mapping.get(spec.name)
         if entry is None:

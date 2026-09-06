@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { Card, Typography, Form, Input, Button, Switch, Divider, message, Space, Spin } from 'antd';
 import { SettingOutlined, KeyOutlined, CloudServerOutlined } from '@ant-design/icons';
 import request from '@/services/request';
+import { getStoredUser } from '@/services/auth';
 
 const { Title, Text } = Typography;
 
@@ -15,6 +16,7 @@ export default function Settings() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const isAdmin = getStoredUser()?.role === 'admin';
 
   useEffect(() => {
     loadSettings();
@@ -59,28 +61,31 @@ export default function Settings() {
 
   return (
     <div>
-      <Title level={3}><SettingOutlined /> 系统设置</Title>
-      <Text type="secondary">系统配置、环境变量和API密钥管理</Text>
+      <Title level={3}><SettingOutlined /> AI 配置</Title>
+      <Text type="secondary">配置测试所用的模型密钥。没有有效配置时，无法真实生成和执行测试。</Text>
 
       <Card style={{ marginTop: 16 }}>
         <Spin spinning={loading}>
           <Form form={form} layout="vertical">
-            <Title level={5}><CloudServerOutlined /> 服务配置</Title>
-            <Form.Item label="后端服务地址" name="backend_url">
-              <Input placeholder="http://localhost:8000" />
-            </Form.Item>
-            <Form.Item label="启用调试模式" name="debug_mode" valuePropName="checked">
-              <Switch />
-            </Form.Item>
+            {isAdmin && (
+              <>
+                <Title level={5}><CloudServerOutlined /> 服务配置</Title>
+                <Form.Item label="后端服务地址" name="backend_url">
+                  <Input placeholder="http://localhost:8000" />
+                </Form.Item>
+                <Form.Item label="启用调试模式" name="debug_mode" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+                <Divider />
+              </>
+            )}
 
-            <Divider />
-
-            <Title level={5}><KeyOutlined /> API密钥</Title>
-            <Form.Item label="Qwen API Key" name="qwen_api_key">
-              <Input.Password placeholder="sk-xxx" />
+            <Title level={5}><KeyOutlined /> 模型密钥</Title>
+            <Form.Item label="通义千问密钥" name="qwen_api_key">
+              <Input.Password placeholder="用于页面分析和生成测试步骤" />
             </Form.Item>
-            <Form.Item label="OpenAI API Key" name="openai_api_key">
-              <Input.Password placeholder="sk-xxx" />
+            <Form.Item label="OpenAI 密钥" name="openai_api_key">
+              <Input.Password placeholder="可选备用模型" />
             </Form.Item>
 
             <Divider />

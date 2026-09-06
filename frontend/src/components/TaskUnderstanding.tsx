@@ -42,8 +42,8 @@ export function TaskUnderstanding({ taskId, requirement, pageUrl }: TaskUndersta
   if (!data) return null;
 
   return (
-    <Card size="small" style={{ marginBottom: 16, background: 'linear-gradient(135deg, #f6ffed 0%, #e6f7ff 100%)' }}
-      title={<Space><RobotOutlined style={{ color: '#722ed1' }} /> AI任务理解</Space>}
+    <Card size="small" style={{ marginBottom: 16, background: '#ffffff' }}
+      title={<Space><RobotOutlined style={{ color: '#1c1c1c' }} /> AI任务理解</Space>}
       extra={data.coverage_estimate != null && (
         <Tag color="blue">预估覆盖率 {(data.coverage_estimate * 100).toFixed(0)}%</Tag>
       )}
@@ -52,7 +52,7 @@ export function TaskUnderstanding({ taskId, requirement, pageUrl }: TaskUndersta
         {/* 需求摘要 */}
         <Col span={24} style={{ marginBottom: 12 }}>
           <Space align="start">
-            <AimOutlined style={{ color: '#1890ff', marginTop: 2 }} />
+            <AimOutlined style={{ color: '#1c1c1c', marginTop: 2 }} />
             <div>
               <Text strong style={{ fontSize: 12, color: '#8c8c8c' }}>需求摘要</Text>
               <Paragraph style={{ margin: 0, fontSize: 13 }}>{data.summary}</Paragraph>

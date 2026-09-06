@@ -50,11 +50,13 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir -r requirements-docker.txt || true
 
-# 安装 Playwright 浏览器 (Chromium) — 带重试, 失败不阻断构建
-RUN for i in 1 2 3; do \
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright && \
+    for i in 1 2 3; do \
         playwright install chromium && break || \
         echo "Playwright download attempt $i failed, retrying..." && sleep 3; \
-    done; exit 0
+    done && \
+    ls /ms-playwright | grep -q chromium
 
 # 复制项目代码
 COPY . .
@@ -64,7 +66,7 @@ RUN mkdir -p uploads logs reports data
 
 # 复制 Worker 启动脚本
 COPY entrypoint-worker.sh /app/entrypoint-worker.sh
-RUN chmod +x /app/entrypoint-worker.sh
+RUN sed -i 's/\r$//' /app/entrypoint-worker.sh && chmod +x /app/entrypoint-worker.sh
 
 # 环境变量默认值
 ENV WORKER_CONCURRENCY=4
@@ -76,7 +78,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # 健康检查: 检查进程是否存活
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import redis,os; r=redis.from_url(f'redis://{os.getenv(\"REDIS_HOST\",\"redis\")}:{os.getenv(\"REDIS_PORT\",\"6379\")}/{os.getenv(\"REDIS_DB\",\"0\")}'); r.ping(); key=f'runtime:worker:heartbeat:{os.getenv(\"WORKER_ID\",\"\")}'; print('healthy' if r.exists(key) or True else 'no heartbeat')" || exit 1
+    CMD python -c "import os,redis; r=redis.Redis(host=os.getenv('REDIS_HOST','redis'),port=int(os.getenv('REDIS_PORT','6379')),db=int(os.getenv('REDIS_DB','0')),password=os.getenv('REDIS_PASSWORD') or None); r.ping()"
 
 # 启动 Worker
 CMD ["/app/entrypoint-worker.sh"]

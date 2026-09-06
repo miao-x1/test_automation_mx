@@ -10,6 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
 
+from app.db.alembic_ops import ensure_user_table
+
 revision: str = '033'
 down_revision: Union[str, None] = '032'
 branch_labels: Union[str, Sequence[str], None] = None
@@ -19,6 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = inspect(conn)
+    ensure_user_table()
     existing = {c["name"] for c in inspector.get_columns("task")}
 
     if "task_type" not in existing:

@@ -21,7 +21,7 @@ from sqlalchemy import (
     Column, String, Text, Integer, Boolean, Index,
     ForeignKey, Enum as SAEnum
 )
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from app.db.types import MEDIUMTEXT
 from sqlalchemy.orm import relationship
 
 from app.models.base import OwnedModel

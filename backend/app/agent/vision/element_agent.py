@@ -11,8 +11,10 @@ import httpx
 from typing import AsyncGenerator, Dict, Any, List
 from app.agent.core.base_agent import BaseAgent as NewBaseAgent
 from app.agent.core.types import AgentCapability
+from pathlib import Path
 from app.core.config import settings
 from app.core.logger import log
+from app.core.upload_paths import resolve_upload_path
 
 
 class ElementAgent(NewBaseAgent):
@@ -46,7 +48,10 @@ class ElementAgent(NewBaseAgent):
         log.info(f"ElementAgent初始化完成 | 从settings读取配置 | model: {self.model}")
 
     def _encode_image(self, image_path: str) -> str:
-        with open(image_path, "rb") as f:
+        resolved = resolve_upload_path(image_path)
+        if not Path(resolved).is_file():
+            raise FileNotFoundError(f"图片不存在或无法读取: {image_path}")
+        with open(resolved, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
 
     def _get_image_mime(self, image_path: str) -> str:
@@ -83,6 +88,14 @@ P2（辅助识别）：Image（可点击的）、Icon（可点击的）
       "name": "搜索输入框",
       "type": "input",
       "text": "",
+      "role": "searchbox",
+      "label": "搜索",
+      "placeholder": "请输入关键词",
+      "id": "可见的稳定id，没有则空",
+      "html_name": "input的name属性，没有则空",
+      "css": "稳定CSS如 input[name=q]，禁止随机class",
+      "test_id": "data-testid，没有则空",
+      "aria_label": "aria-label，没有则空",
       "clickable": true,
       "confidence": 95
     },
@@ -90,6 +103,14 @@ P2（辅助识别）：Image（可点击的）、Icon（可点击的）
       "name": "搜索按钮",
       "type": "button",
       "text": "搜索",
+      "role": "button",
+      "label": "",
+      "placeholder": "",
+      "id": "",
+      "html_name": "",
+      "css": "",
+      "test_id": "",
+      "aria_label": "",
       "clickable": true,
       "confidence": 95
     }
@@ -105,7 +126,8 @@ clickable：该元素是否可点击/可交互
 1. 优先识别地址栏URL，这对生成可执行测试脚本至关重要
 2. 只输出可交互元素，不要输出纯文本
 3. 每个元素必须有name和type
-4. 只输出JSON，不要有任何解释文字"""
+4. 能从截图读到的 id / name / placeholder / aria-label / data-testid / 稳定CSS 必须输出，读不到则空字符串
+5. 只输出JSON，不要有任何解释文字"""
 
     async def _call_vision_api(self, image_path: str) -> Dict[str, Any]:
         if not self.api_key:
@@ -198,16 +220,43 @@ clickable：该元素是否可点击/可交互
                 image_path = image_paths
         task_id = kwargs.get("task_id", 0)
         if not image_path:
-            return {"elements": [], "page_url": "", "page_type": ""}
+            return {
+                "status": "INVALID_INPUT",
+                "elements": [],
+                "page_url": "",
+                "page_type": "",
+                "message": "请上传页面截图，或提供可访问的页面 URL",
+            }
+        resolved = resolve_upload_path(image_path)
+        if not Path(resolved).is_file():
+            return {
+                "status": "FAILED",
+                "elements": [],
+                "page_url": "",
+                "page_type": "",
+                "message": f"图片不存在或无法读取: {image_path}",
+            }
         # 同步包装：实际调用方应使用 analyze_image 异步方法
         loop = asyncio.get_event_loop()
         result = None
         async def _collect():
             nonlocal result
-            async for step in self.analyze_image(task_id, image_path):
+            async for step in self.analyze_image(task_id, resolved):
                 if step.get("step") == "result":
                     result = step.get("data")
-        loop.run_until_complete(_collect())
+        try:
+            loop.run_until_complete(_collect())
+        except Exception as exc:
+            return {
+                "status": "FAILED",
+                "elements": [],
+                "page_url": "",
+                "page_type": "",
+                "message": f"页面图片识别失败: {exc}",
+            }
+        if not result:
+            return {"status": "FAILED", "elements": [], "page_url": "", "page_type": "", "message": "图片识别未返回结果"}
+        result["status"] = "SUCCESS"
         return result
 
     def analyze(self, input_data: dict) -> Dict[str, Any]:
@@ -218,17 +267,14 @@ clickable：该元素是否可点击/可交互
             if image_paths and isinstance(image_paths, list):
                 image_path = image_paths[0]
         if not image_path:
-            return {"elements": [], "page_url": "", "page_type": ""}
-        task_id = input_data.get("task_id", 0)
-        loop = asyncio.get_event_loop()
-        result = None
-        async def _collect():
-            nonlocal result
-            async for step in self.analyze_image(task_id, image_path):
-                if step.get("step") == "result":
-                    result = step.get("data")
-        loop.run_until_complete(_collect())
-        return result or {"elements": [], "page_url": "", "page_type": ""}
+            return {
+                "status": "INVALID_INPUT",
+                "elements": [],
+                "page_url": "",
+                "page_type": "",
+                "message": "请上传页面截图，或提供可访问的页面 URL",
+            }
+        return self.execute(image_path=image_path, task_id=input_data.get("task_id", 0))
 
     async def analyze_image(
         self,
@@ -287,6 +333,7 @@ clickable：该元素是否可点击/可交互
         yield {"step": "保存结果", "progress": 90, "message": "正在保存Vision分析结果..."}
 
         analysis_result = {
+            "status": "SUCCESS",
             "page_type": page_type,
             "page_url": page_url,
             "elements": elements,

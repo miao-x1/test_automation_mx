@@ -27,7 +27,6 @@ from pydantic import BaseModel as PydanticModel
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
-from app.runtime.agent_factory import AgentFactory
 from app.models.case_task import CaseTask, CaseTaskStatus
 from app.models.case_content import CaseContent, CaseType, CasePriority
 from app.models.case_mindmap import CaseMindmap
@@ -77,14 +76,28 @@ def get_db():
         db.close()
 
 
+def _case_agents():
+    """使用已有 Case Agent，不走不存在的 agent_selector 工厂名。"""
+    from app.agent.case.agent_selector import AgentSelector
+    from app.agent.case.case_agent import CaseAgent
+    return AgentSelector(), CaseAgent()
+
+
 def _save_uploaded_file(upload_file: UploadFile) -> str:
     """保存上传文件，返回文件路径"""
+    from app.core.upload_security import validate_upload_bytes
+
+    content = upload_file.file.read()
+    validated = validate_upload_bytes(
+        content,
+        upload_file.filename or "unknown",
+        upload_file.content_type,
+    )
     upload_dir = os.path.join(settings.UPLOAD_DIR, "case")
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, upload_file.filename)
+    file_path = os.path.join(upload_dir, validated.safe_name)
     with open(file_path, "wb") as f:
-        content = upload_file.file.read()
-        f.write(content)
+        f.write(validated.content)
     return file_path
 
 
@@ -117,7 +130,7 @@ async def _run_pipeline(task_id: int, source_type: str, file_path: str = "",
         task.status = CaseTaskStatus.PARSING
         db.commit()
 
-        selector = AgentFactory.create("agent_selector")
+        selector, generator = _case_agents()
         parse_kwargs = {"file_path": file_path, "url": url, "raw_text": raw_text}
         parse_result = selector.parse(source_type=source_type, task_id=task_id, **parse_kwargs)
 
@@ -131,7 +144,6 @@ async def _run_pipeline(task_id: int, source_type: str, file_path: str = "",
         task.status = CaseTaskStatus.GENERATING
         db.commit()
 
-        generator = AgentFactory.create("case_agent")
         gen_result = await asyncio.to_thread(
             generator.generate_rag_cases,
             requirement_context=requirement_context,
@@ -189,6 +201,9 @@ async def generate_cases(
     """
     创建用例生成任务（SSE流式返回进度）
     """
+    if not (raw_text or "").strip() and not (url or "").strip() and file is None:
+        raise HTTPException(status_code=400, detail="请输入需求文本、URL 或上传文件")
+
     # 处理文件上传
     file_path = ""
     if file:
@@ -220,6 +235,8 @@ async def generate_cases(
     async def event_stream():
         import asyncio as _asyncio
 
+        yield f"data: {json.dumps({'event': 'start', 'progress': 0, 'message': '开始生成测试用例', 'status': 'start', 'task_id': task_id}, ensure_ascii=False)}\n\n"
+
         # 用队列传递真实进度
         progress_queue: _asyncio.Queue = _asyncio.Queue()
 
@@ -237,7 +254,7 @@ async def generate_cases(
                 task.status = CaseTaskStatus.PARSING
                 db.commit()
 
-                selector = AgentFactory.create("agent_selector")
+                selector, generator = _case_agents()
                 parse_kwargs = {"file_path": file_path, "url": url, "raw_text": raw_text}
                 parse_result = await _asyncio.to_thread(
                     selector.parse, source_type=source_type, task_id=task_id, **parse_kwargs
@@ -254,7 +271,6 @@ async def generate_cases(
                 task.status = CaseTaskStatus.GENERATING
                 db.commit()
 
-                generator = AgentFactory.create("case_agent")
                 gen_result = await _asyncio.to_thread(
                     generator.generate_rag_cases,
                     requirement_context=requirement_context,
@@ -318,9 +334,16 @@ async def generate_cases(
             if event is None:
                 break
 
+            status = event.get("status")
+            if status == "completed":
+                event = {**event, "event": "complete"}
+            elif status == "failed":
+                event = {**event, "event": "error"}
+            else:
+                event = {**event, "event": "progress"}
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-            if event.get("status") in ("completed", "failed"):
+            if status in ("completed", "failed"):
                 break
 
         # 确保pipeline完成
@@ -335,6 +358,8 @@ async def generate_cases(
 @router.post("/generate/sync")
 async def generate_cases_sync(request: GenerateRequest):
     """创建用例生成任务（同步返回）"""
+    if not (request.raw_text or "").strip() and not (request.url or "").strip():
+        raise HTTPException(status_code=400, detail="请输入需求文本或 URL")
     db = SessionLocal()
     try:
         task = CaseTask(

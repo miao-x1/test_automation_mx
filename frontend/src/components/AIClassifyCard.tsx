@@ -129,12 +129,12 @@ export default function AIClassifyCard({
       size="small"
       style={{
         marginBottom: 16,
-        border: `1px solid ${typeColor === 'default' ? '#d9d9d9' : typeColor}`,
-        background: 'linear-gradient(135deg, #fafafa 0%, #f0f5ff 100%)',
+        border: '1px solid #e6e1d8',
+        background: '#ffffff',
       }}
       title={
         <Space>
-          <RobotOutlined style={{ color: '#1677ff' }} />
+          <RobotOutlined style={{ color: '#1c1c1c' }} />
           <span style={{ fontWeight: 600 }}>AI智能识别结果</span>
         </Space>
       }

@@ -13,8 +13,7 @@ from sqlalchemy import (
     Column, String, Integer, Float, Text, DateTime, Boolean,
     Enum as SQLEnum, Index, JSON,
 )
-from sqlalchemy.dialects import mysql
-
+from app.db.types import MEDIUMTEXT
 from app.models.base import BaseModel
 
 
@@ -80,7 +79,7 @@ class RuntimeTask(BaseModel):
         comment="调用的 action",
     )
     payload_json = Column(
-        mysql.MEDIUMTEXT(),
+        MEDIUMTEXT(),
         nullable=True,
         comment="任务参数 JSON",
     )
@@ -174,7 +173,7 @@ class RuntimeTask(BaseModel):
 
     # ---------- 结果 ----------
     result_json = Column(
-        mysql.MEDIUMTEXT(),
+        MEDIUMTEXT(),
         nullable=True,
         comment="任务结果 JSON",
     )

@@ -203,7 +203,9 @@ class FlowScriptGenerator(NewBaseAgent):
 
         if page_index == 0:
             # 第一个页面：直接goto
-            url = page.url or flow_graph.entry_url or "https://TODO_REPLACE_WITH_REAL_URL"
+            url = page.url or flow_graph.entry_url or ""
+            if not url or "TODO_REPLACE" in url:
+                raise ValueError("缺少真实目标 URL，无法生成跨页面脚本")
             lines.append(f'    # 导航到首页: {page.title}')
             lines.append(f'    page.goto("{self._escape(url)}", wait_until="domcontentloaded")')
         else:
@@ -246,16 +248,13 @@ class FlowScriptGenerator(NewBaseAgent):
                     fill_value = self._resolve_variable(value)
                     lines.append(f'    page.locator("{self._escape(locator)}").first.fill({fill_value})')
                 else:
-                    # 没有定位器，使用注释提示
-                    lines.append(f'    # TODO: 填写 "{description}" - 需要定位器')
-                    lines.append(f'    # page.locator("TODO").fill("{self._escape(value)}")')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 fill 步骤: {description}')
 
             elif action_type == "click":
                 if locator:
                     lines.append(f'    page.locator("{self._escape(locator)}").first.click()')
                 else:
-                    lines.append(f'    # TODO: 点击 "{description}" - 需要定位器')
-                    lines.append(f'    # page.locator("TODO").click()')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 click 步骤: {description}')
 
             elif action_type == "login":
                 # 登录特殊处理
@@ -266,31 +265,31 @@ class FlowScriptGenerator(NewBaseAgent):
                     lines.append(f'    page.locator("{self._escape(locator)}").first.fill({self._resolve_variable(value or "搜索关键词")})')
                     lines.append('    page.keyboard.press("Enter")')
                 else:
-                    lines.append(f'    # TODO: 搜索 "{description}" - 需要定位器')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 search 步骤: {description}')
 
             elif action_type == "add":
                 if locator:
                     lines.append(f'    page.locator("{self._escape(locator)}").first.click()')
                 else:
-                    lines.append(f'    # TODO: 添加 "{description}" - 需要定位器')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 add 步骤: {description}')
 
             elif action_type == "select":
                 if locator:
                     lines.append(f'    page.locator("{self._escape(locator)}").first.select_option(index=0)')
                 else:
-                    lines.append(f'    # TODO: 选择 "{description}" - 需要定位器')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 select 步骤: {description}')
 
             elif action_type == "navigate":
                 if locator:
                     lines.append(f'    page.locator("{self._escape(locator)}").first.click()')
                 else:
-                    lines.append(f'    # TODO: 导航到 "{description}" - 需要定位器')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 navigate 步骤: {description}')
 
             elif action_type == "verify":
                 if locator:
                     lines.append(f'    expect(page.locator("{self._escape(locator)}").first).to_be_visible()')
                 else:
-                    lines.append(f'    # TODO: 验证 "{description}" - 需要定位器')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空 verify 步骤: {description}')
 
             elif action_type == "submit":
                 if locator:
@@ -414,7 +413,7 @@ class FlowScriptGenerator(NewBaseAgent):
             lines.append(f'    page.locator("{self._escape(transition.trigger_locator)}").first.click()')
         elif transition.trigger:
             lines.append(f'    # 触发跳转: {transition.trigger}')
-            lines.append(f'    # TODO: 需要定位器来触发 "{transition.trigger}"')
+            raise ValueError(f'无法确定稳定定位器，拒绝生成空页面跳转: {transition.trigger}')
 
         # 等待新页面
         to_page = flow_graph.get_page(transition.to_page)
@@ -456,7 +455,7 @@ class FlowScriptGenerator(NewBaseAgent):
                     elif atype == "url":
                         lines.append(f'    expect(page).to_have_url(re.compile(r"{self._escape(expected)}"))')
                 else:
-                    lines.append(f'    # TODO: 断言 - {desc} (需要定位器)')
+                    raise ValueError(f'无法确定稳定定位器，拒绝生成空断言: {desc}')
         else:
             # 默认断言：最后一个页面不为空
             last_page = flow_graph.pages[-1] if flow_graph.pages else None

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Table, Button, Input, Tag, Space, message, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import request from '@/services/request';
+import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
 
 const { Title } = Typography;
 
@@ -14,16 +15,18 @@ export default function TaskListPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
+  const [projectName, setProjectName] = useState(getCurrentProjectName());
 
   const fetchData = useCallback(async (p: number, ps: number, kw: string) => {
     setLoading(true);
     try {
-      const res: any = await request.get('/tasks/', {
-        params: { page: p, page_size: ps, keyword: kw.trim() || undefined },
+      const res: any = await request.get('/requirement/list', {
+        params: { page: p, page_size: ps, keyword: kw.trim() || undefined, project_id: getCurrentProjectId() || undefined },
       });
       const d = res.data || res;
-      setData(d?.items || []);
-      setTotal(d?.total || 0);
+      const items = Array.isArray(d) ? d : (d?.items || []);
+      setData(items);
+      setTotal(typeof d?.total === 'number' ? d.total : items.length);
     } catch {
       message.error('加载任务列表失败');
       setData([]);
@@ -33,6 +36,14 @@ export default function TaskListPage() {
   }, []);
 
   useEffect(() => { fetchData(page, pageSize, keyword); }, [page, pageSize, fetchData]);
+  useEffect(() => {
+    const reload = () => {
+      setProjectName(getCurrentProjectName());
+      fetchData(1, pageSize, keyword);
+    };
+    window.addEventListener(PROJECT_CHANGED, reload);
+    return () => window.removeEventListener(PROJECT_CHANGED, reload);
+  }, [fetchData, pageSize, keyword]);
 
   const statusMap: Record<string, { color: string; text: string }> = {
     pending: { color: 'orange', text: '等待中' },
@@ -46,7 +57,7 @@ export default function TaskListPage() {
   return (
     <div>
       <Card
-        title={<Title level={4} style={{ margin: 0 }}>测试任务</Title>}
+        title={<Title level={4} style={{ margin: 0 }}>测试任务{projectName ? ` · ${projectName}` : ''}</Title>}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/task/create')}>
             创建测试
@@ -82,7 +93,7 @@ export default function TaskListPage() {
             { title: 'ID', dataIndex: 'id', width: 70 },
             { title: '任务名称', dataIndex: 'task_name', ellipsis: true,
               render: (name: string, r: any) => (
-                <Button type="link" onClick={() => navigate(`/task/${r.id}`)}>{name || `任务 #${r.id}`}</Button>
+                <Button type="link" onClick={() => navigate(`/task/${r.id}/detail`)}>{name || r.requirement || `任务 #${r.id}`}</Button>
               ),
             },
             { title: '状态', dataIndex: 'status', width: 100,
@@ -102,7 +113,7 @@ export default function TaskListPage() {
             },
             { title: '操作', width: 120, fixed: 'right' as const,
               render: (_: any, r: any) => (
-                <Button type="link" size="small" onClick={() => navigate(`/task/${r.id}`)}>查看详情</Button>
+                <Button type="link" size="small" onClick={() => navigate(`/task/${r.id}/detail`)}>查看详情</Button>
               ),
             },
           ]}

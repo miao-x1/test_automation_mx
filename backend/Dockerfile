@@ -42,11 +42,14 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir -r requirements-docker.txt || true
 
-# 安装 Playwright 浏览器（Chromium）— 带重试，失败不阻断构建
-RUN for i in 1 2 3; do \
+# 与生产环境 PLAYWRIGHT_BROWSERS_PATH=/ms-playwright 对齐
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright && \
+    for i in 1 2 3; do \
         playwright install chromium && break || \
         echo "Playwright download attempt $i failed, retrying..." && sleep 3; \
-    done; exit 0
+    done && \
+    ls /ms-playwright | grep -q chromium
 
 # 复制项目代码
 COPY . .

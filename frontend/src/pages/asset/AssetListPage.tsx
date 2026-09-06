@@ -23,17 +23,22 @@ export default function AssetListPage() {
         params: { page: p, page_size: ps, keyword: kw.trim() || undefined },
       });
       const d = res.data || res;
-      setData(d?.items || []);
-      setTotal(d?.total || 0);
+      const items = d?.items || [];
+      setData(items);
+      setTotal(d?.total || items.length);
 
-      const sRes: any = await request.get('/assets/v2/stats/summary');
-      const sd = sRes.data || sRes;
-      if (sd) {
-        setStats({
-          total: sd.total || 0,
-          published: sd.published || 0,
-          draft: sd.draft || 0,
-        });
+      try {
+        const sRes: any = await request.get('/assets/v2/stats/summary');
+        const sd = sRes.data || sRes;
+        if (sd) {
+          setStats({
+            total: sd.total ?? items.length,
+            published: sd.published || 0,
+            draft: sd.draft || 0,
+          });
+        }
+      } catch {
+        setStats({ total: items.length, published: 0, draft: 0 });
       }
     } catch {
       message.error('加载资产列表失败');
@@ -56,8 +61,8 @@ export default function AssetListPage() {
     <div>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}><Card><Statistic title="资产总数" value={stats.total} prefix={<FileTextOutlined />} /></Card></Col>
-        <Col span={8}><Card><Statistic title="已发布" value={stats.published} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col span={8}><Card><Statistic title="草稿" value={stats.draft} prefix={<ClockCircleOutlined />} valueStyle={{ color: '#faad14' }} /></Card></Col>
+        <Col span={8}><Card><Statistic title="已发布" value={stats.published} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#3d5a45' }} /></Card></Col>
+        <Col span={8}><Card><Statistic title="草稿" value={stats.draft} prefix={<ClockCircleOutlined />} valueStyle={{ color: '#8a7348' }} /></Card></Col>
       </Row>
 
       <Card

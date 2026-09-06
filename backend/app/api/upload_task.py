@@ -117,26 +117,18 @@ async def upload_file(
         if task.status not in (CaseTaskStatus.WAITING, CaseTaskStatus.FAILED):
             raise HTTPException(status_code=400, detail=f"任务状态不允许上传: {task.status}")
 
-        # 保存文件
+        from app.core.upload_security import validate_upload_file
+        validated = await validate_upload_file(file, declared_category="auto")
+
         upload_dir = os.path.join(settings.UPLOAD_DIR, "upload_tasks")
         os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"task_{task_id}_{file.filename}")
+        file_path = os.path.join(upload_dir, f"task_{task_id}_{validated.safe_name}")
         with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
+            f.write(validated.content)
 
-        # 更新任务
         task.source_file = file_path
-        # 自动推断source_type
         if task.source_type == "text":
-            ext = os.path.splitext(file.filename)[1].lower()
-            type_map = {
-                ".pdf": "pdf", ".doc": "doc", ".docx": "doc",
-                ".json": "swagger", ".yaml": "swagger", ".yml": "swagger",
-                ".png": "image", ".jpg": "image", ".jpeg": "image",
-                ".mp4": "video", ".avi": "video",
-            }
-            task.source_type = type_map.get(ext, "text")
+            task.source_type = validated.category
 
         db.commit()
 
@@ -145,6 +137,8 @@ async def upload_file(
             "file_path": file_path,
             "source_type": task.source_type,
             "status": task.status,
+            "file_size": validated.size,
+            "original_name": validated.original_name,
         }
     finally:
         db.close()

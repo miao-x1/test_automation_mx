@@ -94,6 +94,12 @@ class ScriptValidator(NewBaseAgent):
             result.errors.append(f"Python语法错误: {e.msg} (行{e.lineno})")
             result.valid = False
 
+        from app.agent.script.locator_builder import script_has_invalid_locators
+        invalid = script_has_invalid_locators(content)
+        if invalid:
+            result.errors.append(invalid)
+            result.valid = False
+
     def _validate_midscene(self, parsed: ParsedScript, result: ValidationResult):
         """校验Midscene脚本"""
         content = parsed.raw_content

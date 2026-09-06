@@ -25,12 +25,12 @@ class PlaywrightPrompt:
         for i, elem in enumerate(elements[:20], 1):
             name = elem.get("element_name", "")
             etype = elem.get("element_type", "")
-            locator = elem.get("locator", "")
+            locator = elem.get("playwright_expr") or elem.get("locator", "")
             xpath = elem.get("xpath", "")
             css_selector = elem.get("css_selector", "")
             page = elem.get("page_name", "")
             lines.append(
-                f"{i}. {name} | 类型: {etype} | 定位器: {locator} | "
+                f"{i}. {name} | 类型: {etype} | Playwright: {locator} | "
                 f"XPath: {xpath} | CSS: {css_selector} | 页面: {page}"
             )
 
@@ -119,7 +119,9 @@ class PlaywrightPrompt:
         assertions_json = json.dumps(assertions, ensure_ascii=False, indent=2)
         preconditions_str = "、".join(preconditions) if preconditions else "无"
 
-        default_url = target_url if target_url else "https://TODO_REPLACE_WITH_REAL_URL"
+        if not target_url:
+            raise ValueError("缺少真实目标 URL，无法生成 Playwright 脚本")
+        default_url = target_url
 
         # 构建反馈上下文部分
         if feedback_context:
@@ -165,5 +167,5 @@ Graph推理业务流（来自图数据库的页面路径和导航关系）:
 11. 参考历史脚本的代码风格，但不要照搬
 12. 只输出Python脚本代码，不要输出其他内容
 13. 不要用markdown代码块包裹，直接输出脚本内容
-14. 禁止使用example.com作为URL，必须使用上面提供的目标URL；如果目标URL是TODO_REPLACE_WITH_REAL_URL，则在脚本中用注释标注"# TODO: 请替换为真实URL"
+14. 禁止使用 example.com 或 TODO_REPLACE 作为 URL；必须使用上面提供的真实目标 URL。禁止生成 page.locator("") 或空定位器。
 """

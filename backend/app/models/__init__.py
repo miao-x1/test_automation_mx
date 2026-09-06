@@ -3,6 +3,24 @@
 """
 from app.models.base import BaseModel, OwnedModel
 from app.models.user import User, UserRole, Workspace
+from app.models.team import (
+    Organization,
+    OrganizationMember,
+    Project,
+    ProjectMember,
+    OrganizationInvite,
+    OrgRole,
+    ProjectRole,
+)
+from app.models.test_job import (
+    TestJob,
+    RegressionPipeline,
+    RegressionPipelineItem,
+    RegressionRun,
+    JobStatus,
+)
+from app.models.assessment import PerformanceAssessment, PerformanceAssessmentMetric
+from app.models.verification_code import VerificationCode
 from app.models.task import Task, TaskStatus, InputMode, TaskType
 from app.models.test_asset import TestAsset, AssetType, AssetStatus, SourceType, AssetSource
 from app.models.image_file import ImageFile
@@ -138,6 +156,21 @@ __all__ = [
     "User",
     "UserRole",
     "Workspace",
+    "Organization",
+    "OrganizationMember",
+    "Project",
+    "ProjectMember",
+    "OrganizationInvite",
+    "OrgRole",
+    "ProjectRole",
+    "TestJob",
+    "RegressionPipeline",
+    "RegressionPipelineItem",
+    "RegressionRun",
+    "JobStatus",
+    "PerformanceAssessment",
+    "PerformanceAssessmentMetric",
+    "VerificationCode",
     "Task",
     "TaskStatus",
     "InputMode",

@@ -14,7 +14,7 @@
 """
 import enum
 from sqlalchemy import Column, String, Integer, Float, Text, ForeignKey, Index
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from app.db.types import MEDIUMTEXT
 from sqlalchemy.orm import relationship
 from app.models.base import OwnedModel
 
@@ -62,6 +62,14 @@ class ExecutionRecord(OwnedModel):
         nullable=True,
         index=True,
         comment="关联 TestAsset ID（Case First 执行入口）"
+    )
+
+    project_id = Column(
+        Integer,
+        ForeignKey("project.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属项目",
     )
 
     suite_id = Column(

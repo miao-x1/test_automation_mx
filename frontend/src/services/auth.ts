@@ -9,13 +9,34 @@ import request from './request';
 export interface LoginRequest {
   username: string;
   password: string;
+  captcha_id: string;
+  captcha_code: string;
 }
 
 export interface RegisterRequest {
   username: string;
   password: string;
+  phone: string;
+  sms_code: string;
+  captcha_id: string;
+  captcha_code: string;
   email?: string;
   display_name?: string;
+}
+
+export interface CaptchaPayload {
+  captcha_id: string;
+  image: string;
+  expires_in: number;
+  debug_text?: string;
+}
+
+export interface PublicAuthConfig {
+  allow_register: boolean;
+  register_require_approval: boolean;
+  captcha_required: boolean;
+  sms_provider: string;
+  sms_echo: boolean;
 }
 
 export interface UserInfo {
@@ -39,12 +60,66 @@ export interface AuthResponse {
 const USER_KEY = 'test_automation_user';
 
 /**
+ * 登录页公开配置（无需登录）
+ */
+export async function getPublicAuthConfig(): Promise<PublicAuthConfig> {
+  const res: any = await request.get('/auth/public-config');
+  if (res.code === 200 && res.data) {
+    return res.data;
+  }
+  return {
+    allow_register: false,
+    register_require_approval: false,
+    captcha_required: true,
+    sms_provider: 'console',
+    sms_echo: false,
+  };
+}
+
+export async function getCaptcha(): Promise<CaptchaPayload> {
+  const res: any = await request.get('/auth/captcha');
+  if (res.code === 200 && res.data) {
+    return res.data;
+  }
+  throw new Error(res.message || '获取验证码失败');
+}
+
+export async function sendSmsCode(data: {
+  phone: string;
+  purpose: 'register' | 'reset';
+  captcha_id: string;
+  captcha_code: string;
+}): Promise<{ sent: boolean; ttl: number; debug_code?: string }> {
+  const res: any = await request.post('/auth/sms/send', data);
+  if (res.code === 200 && res.data) {
+    return res.data;
+  }
+  throw new Error(res.message || res.detail || '发送验证码失败');
+}
+
+export async function resetPassword(data: {
+  phone: string;
+  sms_code: string;
+  new_password: string;
+  captcha_id: string;
+  captcha_code: string;
+}): Promise<void> {
+  const res: any = await request.post('/auth/password/reset', data);
+  if (res.code === 200) {
+    return;
+  }
+  throw new Error(res.message || res.detail || '重置密码失败');
+}
+
+/**
  * 用户注册
  */
-export async function register(data: RegisterRequest): Promise<AuthResponse> {
+export async function register(data: RegisterRequest): Promise<AuthResponse & { pending_approval?: boolean }> {
   const res: any = await request.post('/auth/register', data);
   if (res.code === 200 && res.data) {
-    saveUser(res.data.user);
+    if (!res.data.pending_approval && res.data.user) {
+      saveUser(res.data.user);
+    }
     return res.data;
   }
   throw new Error(res.message || '注册失败');

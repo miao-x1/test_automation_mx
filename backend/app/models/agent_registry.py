@@ -11,7 +11,7 @@ AgentRegistry 模型 - Agent 注册信息表(管理中心核心表)
 核心字段: agent_name / agent_type / version / description / config / status
 """
 from sqlalchemy import Column, String, Text, Boolean, Integer, Index, DateTime
-from sqlalchemy.dialects import mysql
+from app.db.types import MEDIUMTEXT
 from app.models.base import BaseModel
 
 
@@ -85,7 +85,7 @@ class AgentRegistry(BaseModel):
         comment="Agent 版本号"
     )
     config = Column(
-        mysql.MEDIUMTEXT(), nullable=True,
+        MEDIUMTEXT(), nullable=True,
         comment="Agent 配置(JSON): 模型参数/超时/重试/自定义参数"
     )
     metadata_json = Column(

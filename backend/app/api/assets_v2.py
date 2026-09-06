@@ -17,6 +17,7 @@ from app.db.database import SessionLocal
 from app.models.test_asset import TestAsset as TestAssetV2, AssetType, AssetStatus, AssetSource
 from app.core.auth import require_auth
 from app.models.user import User
+from app.schemas.response import Response
 
 router = APIRouter()
 
@@ -39,6 +40,8 @@ class UpdateAssetRequest(PydanticModel):
 async def list_assets(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=100),
     asset_type: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     source: Optional[str] = Query(None),
@@ -67,8 +70,10 @@ async def list_assets(
         if session_id:
             query = query.filter(TestAssetV2.session_id == session_id)
 
+        size = page_size or limit
+        offset = skip if page_size is None and skip else (page - 1) * size
         total = query.count()
-        assets = query.order_by(TestAssetV2.id.desc()).offset(skip).limit(limit).all()
+        assets = query.order_by(TestAssetV2.id.desc()).offset(offset).limit(size).all()
 
         # 统计
         type_stats = {}
@@ -86,14 +91,14 @@ async def list_assets(
             TestAssetV2.is_deleted == False,
         ).count()
 
-        return {
+        return Response(code=200, message="ok", data={
             "items": [
                 {
                     "id": a.id,
                     "title": a.title,
                     "asset_type": a.asset_type,
                     "status": a.status,
-                    "source": a.source,
+                    "source": getattr(a, "source_type", None) or getattr(a, "source", None),
                     "priority": a.priority,
                     "tags": a.tags.split(",") if a.tags else [],
                     "session_id": a.session_id,
@@ -109,7 +114,7 @@ async def list_assets(
             "total": total,
             "type_stats": type_stats,
             "draft_count": draft_count,
-        }
+        })
     finally:
         db.close()
 
@@ -250,12 +255,25 @@ async def stats_summary(
         ).group_by(TestAssetV2.asset_type, TestAssetV2.status).all()
 
         result = {}
+        total = 0
+        published = 0
+        draft = 0
         for asset_type, status, count in stats:
             if asset_type not in result:
                 result[asset_type] = {}
             result[asset_type][status] = count
+            total += count
+            if status in ("published", "ready", "executed", "completed"):
+                published += count
+            if status in ("draft", "created", "generated", "analyzed"):
+                draft += count
 
-        return {"stats": result}
+        return Response(code=200, message="ok", data={
+            "total": total,
+            "published": published,
+            "draft": draft,
+            "stats": result,
+        })
     finally:
         db.close()
 

@@ -50,6 +50,14 @@ class User(BaseModel):
         comment="邮箱（可选，唯一）"
     )
 
+    phone = Column(
+        String(20),
+        nullable=True,
+        unique=True,
+        index=True,
+        comment="手机号（唯一）"
+    )
+
     hashed_password = Column(
         String(255),
         nullable=False,

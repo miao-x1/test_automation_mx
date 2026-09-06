@@ -98,6 +98,7 @@ class PageMessage(FlowMessage):
     intent: str = ""                             # 测试意图
     test_steps: List[str] = Field(default_factory=list)    # 测试步骤
     target_urls: List[str] = Field(default_factory=list)   # 目标页面 URL
+    image_paths: List[str] = Field(default_factory=list)   # 已上传的页面截图
     page_descriptions: Dict[str, str] = Field(default_factory=dict)  # 页面描述
     test_scope: str = ""                         # 测试范围
     requirement_items: List[RequirementItem] = Field(default_factory=list)  # 需求项（带RAG上下文）

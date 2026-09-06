@@ -25,7 +25,7 @@ export function generateAndExecute(requirement: string) {
 
 // 获取需求任务列表
 export function getRequirementTasks(limit: number = 20) {
-  return request.get('/requirement/list', { params: { limit } });
+  return request.get('/requirement/list', { params: { page: 1, page_size: limit } });
 }
 
 // 获取需求任务详情

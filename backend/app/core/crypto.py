@@ -60,7 +60,9 @@ def _get_fernet() -> Fernet:
 
     from app.core.config import settings
 
-    secret = getattr(settings, "SECRET_KEY", None) or "test-automation-secret-key-change-in-production"
+    secret = settings.SECRET_KEY
+    if not secret:
+        raise RuntimeError("SECRET_KEY 未配置，无法派生加密密钥")
 
     # 用 PBKDF2HMAC 从 SECRET_KEY 派生 32 字节密钥
     kdf = PBKDF2HMAC(

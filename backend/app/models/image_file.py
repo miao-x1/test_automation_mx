@@ -14,6 +14,14 @@ class ImageFile(OwnedModel):
     一个任务可以有多张图片
     """
     __tablename__ = "image_file"
+
+    project_id = Column(
+        Integer,
+        ForeignKey("project.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属项目",
+    )
     
     task_id = Column(
         Integer,

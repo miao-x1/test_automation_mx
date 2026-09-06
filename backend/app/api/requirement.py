@@ -1,13 +1,14 @@
 """
 需求驱动测试 API路由
 
-数据隔离：所有查询自动过滤 user_id
+数据隔离：按项目权限过滤，兼容旧的 user_id 数据
 """
 import json
 import os
 import uuid
 from pathlib import Path
 from typing import Optional, List
+from sqlalchemy import or_, and_
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -19,10 +20,30 @@ from app.core.config import settings
 from app.core.logger import log
 from app.schemas.response import Response
 from app.core.auth import require_auth
+from app.core.upload_paths import resolve_upload_paths
+from app.agent.script.locator_builder import extract_url
 from app.models.user import User
+from app.services.workspace_service import ADMIN, RUN, VIEW, require_owned_project, require_project, visible_project_ids
 from fastapi.responses import FileResponse
 
 router = APIRouter()
+
+
+def _mark_requirement_status(task_id: int, status: str, error_message: Optional[str] = None) -> None:
+    db = SessionLocal()
+    try:
+        task = db.query(RequirementTask).filter(RequirementTask.id == task_id).first()
+        if not task:
+            return
+        task.status = status
+        if error_message:
+            task.error_message = error_message[:2000]
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        log.warning(f"更新需求任务状态失败 | task_id={task_id} | {e}")
+    finally:
+        db.close()
 
 
 async def sse_wrapper(orchestrator_events, task_id: Optional[int] = None):
@@ -34,18 +55,29 @@ async def sse_wrapper(orchestrator_events, task_id: Optional[int] = None):
     当传入 task_id 时，在收到 flow_success / flow_failed 终止事件后，
     将生成结果（intent / 用例 / 脚本 / 状态 / 错误）持久化到 RequirementTask，
     解决"分析完成后刷新页面看不到结果"的问题。
+    连接中断或流程未给出终止事件时，把任务标为失败，避免一直停在 analyzing。
     """
-    async for event in orchestrator_events:
-        try:
-            evt_name = event.get("event", "")
-            if task_id and evt_name in ("flow_success", "flow_failed"):
-                _persist_requirement_result(task_id, event)
-        except Exception as e:
-            log.warning(f"持久化需求分析结果失败 | task_id={task_id} | {e}")
-        yield {
-            "event": event.get("event", "message"),
-            "data": json.dumps(event, ensure_ascii=False, default=str),
-        }
+    persisted = False
+    try:
+        async for event in orchestrator_events:
+            try:
+                evt_name = event.get("event", "")
+                if task_id and evt_name in ("flow_success", "flow_failed"):
+                    _persist_requirement_result(task_id, event)
+                    persisted = True
+            except Exception as e:
+                log.warning(f"持久化需求分析结果失败 | task_id={task_id} | {e}")
+            yield {
+                "event": event.get("event", "message"),
+                "data": json.dumps(event, ensure_ascii=False, default=str),
+            }
+    except Exception as e:
+        if task_id and not persisted:
+            _mark_requirement_status(task_id, RequirementStatus.FAILED, f"分析中断: {e}")
+        raise
+    finally:
+        if task_id and not persisted:
+            _mark_requirement_status(task_id, RequirementStatus.FAILED, "分析未完成或连接中断")
 
 
 def _persist_requirement_result(task_id: int, event: dict) -> None:
@@ -59,6 +91,7 @@ def _persist_requirement_result(task_id: int, event: dict) -> None:
     parse_req = outputs.get("parse_requirement") or {}
     gen_cases = outputs.get("generate_cases") or {}
     gen_script = outputs.get("generate_script") or {}
+    analyze_image = outputs.get("analyze_image") or {}
 
     db = SessionLocal()
     try:
@@ -77,16 +110,41 @@ def _persist_requirement_result(task_id: int, event: dict) -> None:
             cases_data = gen_cases.get("cases") if isinstance(gen_cases, dict) else None
             if cases_data:
                 task.generated_case = json.dumps(cases_data, ensure_ascii=False, default=str)
+            vision_elements = analyze_image.get("elements") if isinstance(analyze_image, dict) else None
+            if vision_elements:
+                task.page_elements = json.dumps(vision_elements, ensure_ascii=False, default=str)
+            vision_url = analyze_image.get("page_url") if isinstance(analyze_image, dict) else None
+            if vision_url:
+                task.page_overview = str(vision_url)[:2000]
             # 脚本
             script_content = gen_script.get("script_content") if isinstance(gen_script, dict) else None
             if script_content:
                 task.generated_script = script_content
+                if task.task_id:
+                    from app.models.script import Script
+                    existing_script = db.query(Script).filter(Script.task_id == task.task_id).first()
+                    if existing_script:
+                        existing_script.script_content = script_content
+                        existing_script.script_source = "generated"
+                    else:
+                        db.add(Script(
+                            task_id=task.task_id,
+                            script_type="playwright",
+                            script_content=script_content,
+                            script_language="python",
+                            script_source="generated",
+                            user_id=task.user_id,
+                            created_by=task.user_id,
+                        ))
             yaml_content = gen_script.get("script_yaml") if isinstance(gen_script, dict) else None
             if yaml_content:
                 task.generated_yaml = yaml_content
             # 脚本来源
             reuse_info = gen_script.get("reuse_info") if isinstance(gen_script, dict) else None
             task.script_source = "reused" if reuse_info else "generated"
+            if isinstance(gen_script, dict) and gen_script.get("status") == "FAILED":
+                task.status = RequirementStatus.FAILED
+                task.error_message = (gen_script.get("error") or gen_script.get("message") or "脚本生成失败")[:2000]
         elif evt_name == "flow_failed":
             task.status = RequirementStatus.FAILED
             task.error_message = (event.get("error") or result.get("error") or "流程执行失败")[:2000]
@@ -105,9 +163,32 @@ class CreateRequest(BaseModel):
     requirement: str
     additional_info: Optional[str] = None
     image_paths: Optional[list[str]] = None
+    document_paths: Optional[list[str]] = None
     script_format: Optional[str] = "playwright"
     task_type: Optional[str] = None
     test_scope: Optional[dict] = None
+    project_id: Optional[int] = None
+
+
+def _pack_additional_info(note: Optional[str], document_paths: Optional[list[str]]) -> Optional[str]:
+    docs = [p for p in (document_paths or []) if isinstance(p, str) and p.strip()]
+    if docs:
+        return json.dumps({"note": note or "", "document_paths": docs}, ensure_ascii=False)
+    return note
+
+
+def _unpack_additional_info(raw: Optional[str]) -> tuple[Optional[str], list[str]]:
+    if not raw:
+        return None, []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict) and "document_paths" in parsed:
+            docs = [p for p in (parsed.get("document_paths") or []) if isinstance(p, str)]
+            note = parsed.get("note") or None
+            return note, docs
+    except Exception:
+        pass
+    return raw, []
 
 
 class GenerateRequest(BaseModel):
@@ -186,26 +267,15 @@ async def classify_test_type(
         ))
         # 同步等待结果
         result = await dispatcher.wait_for_result(task_id, timeout=60)
-        if result.status == "success":
-            return {"code": 0, "message": "分类成功", "data": result.result}
-        else:
-            raise Exception(result.error or "分类失败")
+        if result.status == "success" and result.result:
+            return {"code": 0, "status": "SUCCESS", "message": "分类成功", "data": result.result}
+        err = result.error or "分类失败"
+        raise HTTPException(status_code=502, detail=err)
+    except HTTPException:
+        raise
     except Exception as e:
         log.error(f"测试类型分类失败: {e}", exc_info=True)
-        # 降级返回默认类型
-        return {
-            "code": 0,
-            "message": "分类降级",
-            "data": {
-                "test_type": "web",
-                "platform": "browser",
-                "framework": "playwright",
-                "confidence": 0.0,
-                "reason": "AI分类不可用，默认为Web测试",
-                "scores": {},
-                "detected_signals": {},
-            },
-        }
+        raise HTTPException(status_code=502, detail=f"测试类型分类失败: {e}")
 
 
 @router.post("/create", summary="创建需求任务")
@@ -217,13 +287,20 @@ async def create_requirement(request: CreateRequest, user: User = Depends(requir
     """
     if not request.requirement.strip():
         raise HTTPException(status_code=400, detail="需求内容不能为空")
+    if not extract_url(request.requirement) and not request.image_paths:
+        raise HTTPException(status_code=400, detail="请提供可访问的页面地址，或上传页面截图")
 
     db = SessionLocal()
     try:
-        task = RequirementFlowService._create_requirement_task(db, request.requirement.strip())
+        access = require_project(db, user, request.project_id, RUN)
+        project_id = access["project"].id
+        task = RequirementFlowService._create_requirement_task(
+            db, request.requirement.strip(), project_id=project_id
+        )
         # 保存附加信息
-        if request.additional_info:
-            task.additional_info = request.additional_info
+        packed_info = _pack_additional_info(request.additional_info, request.document_paths)
+        if packed_info:
+            task.additional_info = packed_info
         if request.image_paths:
             task.image_paths = json.dumps(request.image_paths, ensure_ascii=False)
         if request.script_format:
@@ -236,14 +313,35 @@ async def create_requirement(request: CreateRequest, user: User = Depends(requir
         # 数据隔离
         task.user_id = user.id
         task.created_by = user.id
+        task.project_id = project_id
+        try:
+            # _create_task_for_requirement 自身会 commit；不可包在 begin_nested 里。
+            legacy = RequirementFlowService._create_task_for_requirement(
+                db, request.requirement.strip(), user_id=user.id, project_id=project_id
+            )
+            task.task_id = legacy.id
+        except Exception as exc:
+            log.warning(f"同步写入 task 表失败，需求任务仍保留: {exc}")
         db.commit()
         db.refresh(task)
+        job_id = None
+        try:
+            from app.services.test_job_service import ensure_job_for_requirement
+            job = ensure_job_for_requirement(db, task, user.id)
+            db.commit()
+            job_id = job.id
+        except Exception as exc:
+            log.warning(f"同步测试任务 Job 失败: {exc}")
+        note, document_paths = _unpack_additional_info(task.additional_info)
         return Response(code=200, message="创建成功", data={
             "id": task.id,
             "requirement": task.requirement,
             "status": task.status,
-            "additional_info": task.additional_info,
+            "project_id": task.project_id,
+            "job_id": job_id,
+            "additional_info": note,
             "image_paths": request.image_paths,
+            "document_paths": document_paths,
             "script_format": task.script_format,
         })
     finally:
@@ -255,34 +353,48 @@ async def upload_images(files: List[UploadFile] = File(..., description="UI截�
     """
     上传多张图片，返回图片路径列表
 
-    用于富文本编辑器中的图片上传
+    与 /upload/task、/requirement-input、/requirement/upload_document
+    使用同一套大小 / 扩展名 / MIME / magic bytes 校验。伪造图片不得落盘。
     """
-    allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/webp"]
+    from app.core.upload_security import validate_upload_file
+
     upload_dir = Path(settings.UPLOAD_DIR) / "requirement_images"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_paths = []
     for file in files:
-        if file.content_type not in allowed_types:
-            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file.content_type}")
-
-        content = await file.read()
-        if len(content) > settings.MAX_UPLOAD_SIZE:
-            raise HTTPException(status_code=400, detail=f"文件 {file.filename} 大小超出限制")
-
-        ext = Path(file.filename).suffix or ".png"
-        filename = f"{uuid.uuid4().hex}{ext}"
+        validated = await validate_upload_file(file, declared_category="image")
+        filename = f"{uuid.uuid4().hex}{validated.ext}"
         file_path = upload_dir / filename
-
         with open(file_path, "wb") as f:
-            f.write(content)
-
-        # 存储相对路径
+            f.write(validated.content)
         relative_path = f"requirement_images/{filename}"
         saved_paths.append(relative_path)
         log.info(f"需求图片上传成功 | 文件: {filename}")
 
     return Response(code=200, message="上传成功", data={"image_paths": saved_paths})
+
+
+@router.post("/upload_document", summary="上传需求文档")
+async def upload_document(file: UploadFile = File(..., description="需求文档 / API 文档")):
+    """持久化文档并返回可被任务引用的相对路径。"""
+    from app.core.upload_security import validate_upload_file
+
+    validated = await validate_upload_file(file, declared_category="auto")
+    upload_dir = Path(settings.UPLOAD_DIR) / "requirement_documents"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}{validated.ext}"
+    file_path = upload_dir / filename
+    with open(file_path, "wb") as f:
+        f.write(validated.content)
+    relative_path = f"requirement_documents/{filename}"
+    log.info(f"需求文档上传成功 | 文件: {filename} | 原始名: {validated.original_name}")
+    return Response(code=200, message="上传成功", data={
+        "document_path": relative_path,
+        "file_name": validated.original_name,
+        "file_size": validated.size,
+        "file_type": validated.category,
+    })
 
 
 @router.get("/images/{image_path:path}", summary="获取上传的图片")
@@ -295,7 +407,11 @@ async def get_requirement_image(image_path: str):
 
 
 @router.post("/analyze/{task_id}", summary="开始分析需求任务")
-async def analyze_requirement(task_id: int, request: AnalyzeWithFeedbackRequest = None):
+async def analyze_requirement(
+    task_id: int,
+    request: AnalyzeWithFeedbackRequest = None,
+    user: User = Depends(require_auth),
+):
     """
     开始分析需求任务（生成脚本）
 
@@ -307,8 +423,12 @@ async def analyze_requirement(task_id: int, request: AnalyzeWithFeedbackRequest 
         task = db.query(RequirementTask).filter(RequirementTask.id == task_id).first()
         if not task:
             raise HTTPException(status_code=404, detail="需求任务不存在")
-        if task.status not in (RequirementStatus.PENDING, RequirementStatus.FAILED):
+        require_owned_project(db, user, task.project_id, RUN, fallback_user_id=task.user_id)
+        if task.status not in (RequirementStatus.PENDING, RequirementStatus.FAILED, RequirementStatus.ANALYZING):
             raise HTTPException(status_code=400, detail=f"任务状态为 {task.status}，无法开始分析")
+        task.status = RequirementStatus.ANALYZING
+        task.error_message = None
+        db.commit()
         # 在 session 关闭前提取所需字段，避免 detached instance 访问
         requirement = task.requirement
         image_paths = json.loads(task.image_paths) if task.image_paths else None
@@ -322,7 +442,7 @@ async def analyze_requirement(task_id: int, request: AnalyzeWithFeedbackRequest 
     # 构建 Orchestrator payload
     payload = {
         "requirement": requirement,
-        "image_paths": image_paths,
+        "image_paths": resolve_upload_paths(image_paths),
         "additional_info": additional_info,
         "script_format": script_format,
         "feedback_context": feedback_ctx,
@@ -341,14 +461,18 @@ async def analyze_requirement(task_id: int, request: AnalyzeWithFeedbackRequest 
 
 
 @router.post("/analyze_and_execute/{task_id}", summary="分析需求任务（兼容旧接口，已改为仅分析）")
-async def analyze_and_execute_requirement(task_id: int, request: AnalyzeWithFeedbackRequest = None):
+async def analyze_and_execute_requirement(
+    task_id: int,
+    request: AnalyzeWithFeedbackRequest = None,
+    user: User = Depends(require_auth),
+):
     """
     [兼容旧接口] 原为"分析并执行"，现收敛为仅分析
 
     需求模块不再直接执行测试，执行由 Web 执行层负责
     内部转发到 /analyze/{task_id}
     """
-    return await analyze_requirement(task_id, request)
+    return await analyze_requirement(task_id, request, user)
 
 
 @router.post("/execute/{task_id}", summary="执行已生成的脚本（兼容旧接口，已废弃）")
@@ -386,6 +510,8 @@ async def generate_script(request: GenerateRequest):
     """
     if not request.requirement.strip():
         raise HTTPException(status_code=400, detail="需求内容不能为空")
+    if not extract_url(request.requirement) and not request.image_paths:
+        raise HTTPException(status_code=400, detail="请提供可访问的页面地址，或上传页面截图")
 
     payload = {
         "requirement": request.requirement,
@@ -462,28 +588,49 @@ async def generate_multimodal_and_execute(request: MultiModalGenerateRequest):
 @router.get("/list", summary="获取需求任务列表")
 async def list_requirements(
     limit: int = Query(default=20, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: Optional[str] = Query(default=None),
+    project_id: Optional[int] = Query(default=None),
     user: User = Depends(require_auth),
 ):
-    """获取需求任务列表（自动过滤当前用户）"""
+    """获取需求任务列表（按项目隔离）"""
     db = SessionLocal()
     try:
-        tasks = db.query(RequirementTask).filter(
-            RequirementTask.user_id == user.id
-        ).order_by(RequirementTask.created_at.desc()).limit(limit).all()
+        size = page_size or limit
+        query = db.query(RequirementTask)
+        if project_id:
+            require_project(db, user, project_id, VIEW)
+            query = query.filter(RequirementTask.project_id == project_id)
+        else:
+            ids = visible_project_ids(db, user)
+            query = query.filter(
+                or_(
+                    RequirementTask.project_id.in_(ids or [0]),
+                    and_(RequirementTask.project_id.is_(None), RequirementTask.user_id == user.id),
+                )
+            )
+        if keyword:
+            query = query.filter(RequirementTask.requirement.contains(keyword))
+        total = query.count()
+        tasks = query.order_by(RequirementTask.created_at.desc()).offset((page - 1) * size).limit(size).all()
         data = []
         for t in tasks:
             data.append({
                 "id": t.id,
+                "task_name": (t.requirement or "")[:60] or f"任务 #{t.id}",
                 "requirement": t.requirement,
                 "status": t.status,
+                "task_type": getattr(t, "task_type", None) or "web",
                 "intent": t.intent,
                 "task_id": t.task_id,
                 "execution_id": t.execution_id,
                 "error_message": t.error_message,
                 "script_format": t.script_format,
+                "project_id": t.project_id,
                 "created_at": str(t.created_at) if t.created_at else None,
             })
-        return Response(code=200, message="获取成功", data=data)
+        return Response(code=200, message="获取成功", data={"items": data, "total": total})
     finally:
         db.close()
 
@@ -493,12 +640,10 @@ async def get_requirement(task_id: int, user: User = Depends(require_auth)):
     """获取需求任务详情"""
     db = SessionLocal()
     try:
-        task = db.query(RequirementTask).filter(
-            RequirementTask.id == task_id,
-            RequirementTask.user_id == user.id
-        ).first()
+        task = db.query(RequirementTask).filter(RequirementTask.id == task_id).first()
         if not task:
             raise HTTPException(status_code=404, detail="需求任务不存在")
+        require_owned_project(db, user, task.project_id, VIEW, fallback_user_id=task.user_id)
 
         # 解析image_paths
         image_paths = []
@@ -508,6 +653,7 @@ async def get_requirement(task_id: int, user: User = Depends(require_auth)):
             except Exception:
                 image_paths = []
 
+        note, document_paths = _unpack_additional_info(task.additional_info)
         return Response(code=200, message="获取成功", data={
             "id": task.id,
             "requirement": task.requirement,
@@ -523,13 +669,15 @@ async def get_requirement(task_id: int, user: User = Depends(require_auth)):
             "script_source": task.script_source,
             "reuse_similarity": task.reuse_similarity,
             "script_format": task.script_format,
-            "additional_info": task.additional_info,
+            "additional_info": note,
             "image_paths": image_paths,
+            "document_paths": document_paths,
             "page_overview": task.page_overview,
             "page_elements": task.page_elements,
             "test_scenarios": task.test_scenarios,
             "expected_results": task.expected_results,
             "graph_result": task.graph_result,
+            "project_id": task.project_id,
             "created_at": str(task.created_at) if task.created_at else None,
             "updated_at": str(task.updated_at) if task.updated_at else None,
         })
@@ -558,12 +706,10 @@ async def delete_requirement(task_id: int, user: User = Depends(require_auth)):
     """删除需求任务及关联数据"""
     db = SessionLocal()
     try:
-        task = db.query(RequirementTask).filter(
-            RequirementTask.id == task_id,
-            RequirementTask.user_id == user.id
-        ).first()
+        task = db.query(RequirementTask).filter(RequirementTask.id == task_id).first()
         if not task:
             raise HTTPException(status_code=404, detail="需求任务不存在")
+        require_owned_project(db, user, task.project_id, ADMIN, fallback_user_id=task.user_id)
         db.delete(task)
         db.commit()
         return Response(code=200, message="删除成功")
@@ -580,13 +726,15 @@ async def batch_delete_requirements(request: DeleteRequirementRequest, user: Use
     try:
         success_count = 0
         for req_id in request.ids:
-            task = db.query(RequirementTask).filter(
-                RequirementTask.id == req_id,
-                RequirementTask.user_id == user.id
-            ).first()
-            if task:
-                db.delete(task)
-                success_count += 1
+            task = db.query(RequirementTask).filter(RequirementTask.id == req_id).first()
+            if not task:
+                continue
+            try:
+                require_owned_project(db, user, task.project_id, ADMIN, fallback_user_id=task.user_id)
+            except HTTPException:
+                continue
+            db.delete(task)
+            success_count += 1
         db.commit()
         return Response(code=200, message=f"删除完成: 成功{success_count}个")
     finally:

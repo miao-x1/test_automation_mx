@@ -33,6 +33,8 @@ class TestEnvironment(OwnedModel):
     """
     __tablename__ = "test_environment"
 
+    project_id = Column(Integer, ForeignKey("project.id", ondelete="SET NULL"), nullable=True, index=True, comment="所属项目")
+
     # 基本信息
     name = Column(String(50), nullable=False, comment="环境名称: dev/test/staging/prod")
     display_name = Column(String(100), nullable=True, comment="显示名称")

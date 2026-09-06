@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 # 不记录日志的路径前缀
 _EXCLUDE_PREFIXES = (
     "/docs", "/redoc", "/openapi.json", "/favicon.ico",
-    "/api/health",
+    "/health", "/api/health", "/ready", "/api/ready",
+    "/auth/public-config",
 )
 
 

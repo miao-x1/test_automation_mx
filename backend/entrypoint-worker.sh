@@ -34,9 +34,8 @@ r.ping()
 done
 echo "  Redis 已就绪"
 
-# 3. 运行数据库迁移 (Worker 也可执行,确保表结构最新)
-echo "[3/3] 运行 Alembic 迁移..."
-alembic upgrade head || echo "  跳过迁移 (可能已最新或被 Backend 执行)"
+# 3. Worker 不执行迁移。Schema 由 backend entrypoint fail-closed 负责。
+echo "[3/3] 跳过 Alembic（由 backend 独占执行）"
 
 # 启动 Worker
 CONCURRENCY="${WORKER_CONCURRENCY:-4}"

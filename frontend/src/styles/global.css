@@ -4,10 +4,123 @@
   box-sizing: border-box;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-}
-
+html,
+body,
 #root {
   min-height: 100vh;
+}
+
+body {
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: #f3f1ec;
+  color: #1c1c1c;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: #1c1c1c;
+}
+
+.ant-card,
+.ant-modal-content,
+.ant-dropdown-menu,
+.ant-popover-inner,
+.ant-select-dropdown {
+  box-shadow: none !important;
+}
+
+.ant-card {
+  border-color: #e6e1d8 !important;
+}
+
+.ant-layout-sider {
+  border-right: 1px solid #1c1c1c;
+}
+
+.ant-btn-link {
+  color: #1c1c1c;
+}
+
+.ant-btn-link:hover {
+  color: #6b6560;
+}
+
+.ant-typography a,
+.ant-table-cell a {
+  color: #1c1c1c;
+}
+
+.ant-statistic-title {
+  color: #6b6560;
+}
+
+.ant-page-header {
+  background: transparent;
+  padding-inline: 0;
+}
+
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  background: #f7f5f1;
+  border-color: #e6e1d8;
+}
+
+.ant-upload-drag {
+  background: #f7f5f1 !important;
+  border-color: #e6e1d8 !important;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f3f1ec;
+  background-image:
+    linear-gradient(rgba(28, 28, 28, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28, 28, 28, 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  padding: 32px 16px;
+  position: relative;
+}
+
+.auth-shell::before {
+  content: "TEST AUTOMATION";
+  position: absolute;
+  left: 48px;
+  bottom: 40px;
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  color: #b8b2a8;
+}
+
+.auth-card {
+  width: 400px;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid #e6e1d8;
+  padding: 48px 40px 40px;
+  position: relative;
+  z-index: 1;
+}
+
+.auth-brand {
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #6b6560;
+  margin-bottom: 10px;
+}
+
+.auth-title {
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #1c1c1c;
+  margin-bottom: 8px;
+}
+
+.auth-subtitle {
+  font-size: 14px;
+  color: #6b6560;
+  margin-bottom: 32px;
 }

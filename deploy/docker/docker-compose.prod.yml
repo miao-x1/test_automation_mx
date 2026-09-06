@@ -25,7 +25,7 @@ services:
     container_name: prod_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-magic1212}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in deploy/docker/.env.production}
       MYSQL_DATABASE: ${DB_NAME:-test_automation}
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
@@ -34,8 +34,7 @@ services:
       - "${DB_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./deploy/docker/mysql/conf.d:/etc/mysql/conf.d:ro
-      - ./deploy/docker/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./mysql/conf.d:/etc/mysql/conf.d:ro
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
@@ -45,7 +44,7 @@ services:
       --slow-query-log=ON
       --long-query-time=2
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-magic1212}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -67,7 +66,7 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-      - ./deploy/docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     command: redis-server /usr/local/etc/redis/redis.conf
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -114,8 +113,8 @@ services:
     container_name: prod_minio
     restart: always
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
     volumes:
       - minio_data:/data
     command: minio server /data --console-address ":9001"
@@ -142,8 +141,8 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
     volumes:
       - milvus_data:/var/lib/milvus
     command: ["milvus", "run", "standalone"]
@@ -175,7 +174,7 @@ services:
       - "${NEO4J_HTTP_PORT:-7474}:7474"
       - "${NEO4J_BOLT_PORT:-7687}:7687"
     environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_server_memory_heap_initial__size: 512m
       NEO4J_server_memory_heap_max__size: 1G
@@ -186,7 +185,7 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD", "cypher-shell", "-u", "${NEO4J_USER:-neo4j}", "-p", "${NEO4J_PASSWORD:-password}", "RETURN 1"]
+      test: ["CMD", "cypher-shell", "-u", "${NEO4J_USER:-neo4j}", "-p", "${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}", "RETURN 1"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -206,7 +205,7 @@ services:
   # ---- Backend (FastAPI API 服务) ----
   backend:
     build:
-      context: ./backend
+      context: ../../backend
       dockerfile: Dockerfile
     container_name: prod_backend
     restart: always
@@ -218,7 +217,7 @@ services:
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-magic1212}
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD}
       - DB_NAME=${DB_NAME:-test_automation}
       - USE_SQLITE=False
       - REDIS_HOST=redis
@@ -229,9 +228,11 @@ services:
       - MILVUS_STANDALONE=1
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}
       - APP_ENV=production
       - DEBUG=False
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:?Set MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:?Set MINIO_SECRET_KEY}
     volumes:
       - backend_uploads:/app/uploads
       - backend_reports:/app/reports
@@ -263,7 +264,7 @@ services:
   # ---- Agent Worker (独立任务执行进程) ----
   worker:
     build:
-      context: ./backend
+      context: ../../backend
       dockerfile: Dockerfile.worker
     container_name: prod_worker
     restart: always
@@ -273,7 +274,7 @@ services:
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-magic1212}
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD}
       - DB_NAME=${DB_NAME:-test_automation}
       - USE_SQLITE=False
       - REDIS_HOST=redis
@@ -284,7 +285,7 @@ services:
       - MILVUS_STANDALONE=1
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?Set NEO4J_PASSWORD}
       - APP_ENV=production
       - DEBUG=False
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
@@ -319,7 +320,7 @@ services:
   # ---- Frontend (React + Nginx) ----
   frontend:
     build:
-      context: ./frontend
+      context: ../../frontend
       dockerfile: Dockerfile
     container_name: prod_frontend
     restart: always
@@ -329,7 +330,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3

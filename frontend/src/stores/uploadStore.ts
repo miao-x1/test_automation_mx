@@ -9,6 +9,7 @@
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { assertUploadAllowed, formatUploadError } from '../utils/uploadGuard';
 
 /** 单个上传任务的状态 */
 export interface UploadTaskState {
@@ -127,6 +128,7 @@ export const useUploadStore = create<UploadStoreState>()(
       },
 
       uploadFile: async (taskId, file) => {
+        await assertUploadAllowed(file);
         const formData = new FormData();
         formData.append('file', file);
         const res = await fetch(`/api/upload/task/${taskId}/upload`, {
@@ -134,8 +136,10 @@ export const useUploadStore = create<UploadStoreState>()(
           body: formData,
           credentials: 'include',
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || '上传失败');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(formatUploadError({ response: { data }, message: data.detail || '上传失败' }));
+        }
 
         get().updateTaskProgress(taskId, {
           source_type: data.source_type,

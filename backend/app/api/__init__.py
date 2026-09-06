@@ -4,6 +4,8 @@ API路由模块
 from fastapi import APIRouter
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
+from app.api.workspace import router as workspace_router
+from app.api.assessment import router as assessment_router
 from app.api.task import router as task_router
 from app.api.page import router as page_router
 from app.api.execution import router as execution_router
@@ -99,6 +101,8 @@ api_router = APIRouter()
 # 注册子路由
 api_router.include_router(health_router, tags=["健康检查"])
 api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
+api_router.include_router(workspace_router, tags=["工作空间"])
+api_router.include_router(assessment_router, tags=["效能测评"])
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["仪表盘"])
 api_router.include_router(task_router, prefix="/tasks", tags=["任务管理"])
 api_router.include_router(test_asset_router, prefix="/assets/v2", tags=["测试资产管理"])

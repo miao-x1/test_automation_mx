@@ -175,12 +175,10 @@ export function analyzeRequirement(sessionId: number): EventSource {
 
 // 使用fetch处理SSE
 export async function* analyzeStream(sessionId: number): AsyncGenerator<any> {
-  const token = localStorage.getItem('access_token');
   const response = await fetch('/api/requirement-center/analyze', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': token ? `Bearer ${token}` : '',
     },
     credentials: 'include',
     body: JSON.stringify({ session_id: sessionId }),

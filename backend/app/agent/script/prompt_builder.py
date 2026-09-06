@@ -75,7 +75,7 @@ await ai.aiAssert('断言描述');
 
         user_prompt = f"""请根据以下信息生成Midscene.js测试脚本。
 
-目标URL: {target_url or 'https://TODO_REPLACE'}
+目标URL: {target_url}
 用例名称: {case_name}
 用例描述: {description}
 
@@ -126,14 +126,28 @@ await ai.aiAssert('断言描述');
         if feedback_context:
             feedback_section = f"\n⚠️ 用户反馈与修复要求:\n{feedback_context}"
 
+        validated_exprs = [
+            e.get("playwright_expr")
+            for e in (elements or [])
+            if isinstance(e, dict) and e.get("locator_validated") and e.get("playwright_expr")
+        ]
+        validated_rule = ""
+        if validated_exprs:
+            validated_rule = (
+                "\n已验证定位器（必须原样写入脚本，禁止改写、禁止编造 fallback）:\n"
+                + "\n".join(f"- {expr}" for expr in validated_exprs)
+                + "\n禁止使用未验证的 get_by_role/get_by_placeholder。禁止 safe_click 多策略猜测。\n"
+            )
+
         system_prompt = f"""你是一个专业的Playwright测试脚本工程师。生成高质量、稳定的自动化测试脚本。
 
 核心原则：
-1. 优先使用稳定定位器（data-testid > id > name > css > xpath > text）
+1. 优先使用稳定定位器（data-testid > aria-label > placeholder > label > role+name > 稳定CSS/id > text > xpath）
 2. 每个操作步骤必须包含失败降级逻辑
 3. 多页面场景使用正确的页面切换模式
 4. 关键步骤添加自动重试
 5. 当前策略: {strategy.primary.value}（置信度: {strategy.confidence:.0%}）
+{validated_rule}
 
 脚本结构模板：
 ```python
@@ -176,7 +190,7 @@ def test_xxx(page: Page):
 
         user_prompt = f"""请根据以下信息生成增强版Playwright脚本。
 
-目标URL: {target_url or 'https://TODO_REPLACE'}
+目标URL: {target_url}
 用例名称: {case_name}
 用例描述: {description}
 
@@ -240,7 +254,7 @@ steps:
 
         user_prompt = f"""请生成YAML测试配置。
 
-目标URL: {target_url or 'https://TODO_REPLACE'}
+目标URL: {target_url}
 用例名称: {case_name}
 
 测试步骤:
@@ -264,6 +278,9 @@ steps:
             return "（暂无页面元素信息）"
 
         lines = ["相关页面元素（按定位器稳定性排序，必须优先使用）:"]
+        validated = [e for e in elements if isinstance(e, dict) and e.get("locator_validated")]
+        if validated:
+            lines.append("以下 playwright_expr 已在真实页面验证，必须原样使用：")
         for i, elem in enumerate(elements[:20], 1):
             name = elem.get("element_name", elem.get("name", ""))
             etype = elem.get("element_type", elem.get("type", ""))
@@ -277,6 +294,9 @@ steps:
                 if val:
                     locators.append(f"{loc_type}={val}")
 
+            expr = elem.get("playwright_expr") or ""
+            if expr:
+                locators.insert(0, f"playwright={expr}")
             locator_str = " | ".join(locators) if locators else "无稳定定位器"
             page = elem.get("page_name", elem.get("page_url", ""))
             page_str = f" | 页面: {page}" if page else ""
@@ -288,6 +308,8 @@ steps:
     @staticmethod
     def _build_degradation_hints(elements: List[Dict], strategy: StrategyResult) -> str:
         """构建降级提示"""
+        if any(isinstance(e, dict) and e.get("locator_validated") for e in (elements or [])):
+            return "定位器已在真实页面验证。禁止编造 fallback，必须原样使用 playwright_expr。"
         if not strategy.degradation_chain or len(strategy.degradation_chain) <= 1:
             return ""
 

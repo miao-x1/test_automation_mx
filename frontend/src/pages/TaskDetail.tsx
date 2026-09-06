@@ -357,25 +357,20 @@ const TaskDetail: React.FC = () => {
       ) : understanding ? (
         <Card
           size="small"
-          style={{
-            marginBottom: 16,
-            background: 'linear-gradient(135deg, #1677ff 0%, #0958d9 50%, #003eb3 100%)',
-            border: 'none',
-            color: '#fff',
-          }}
+          style={{ marginBottom: 16, background: '#ffffff' }}
           styles={{ body: { padding: '16px 20px' } }}
         >
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
             <RobotOutlined style={{ fontSize: 18, marginRight: 8 }} />
-            <span style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>AI 任务理解</span>
+            <span style={{ fontSize: 16, fontWeight: 500, color: '#1c1c1c' }}>AI 任务理解</span>
             {understanding.confidence != null && (
-              <Tag color="blue" style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff' }}>
+              <Tag style={{ marginLeft: 'auto' }}>
                 置信度: {(understanding.confidence * 100).toFixed(0)}%
               </Tag>
             )}
           </div>
 
-          <Descriptions column={1} size="small" labelStyle={{ color: 'rgba(255,255,255,0.7)', width: 90 }} contentStyle={{ color: '#fff' }}>
+          <Descriptions column={1} size="small" labelStyle={{ color: '#6b6560', width: 90 }} contentStyle={{ color: '#1c1c1c' }}>
             {understanding.goal && (
               <Descriptions.Item label="你的目标">{understanding.goal}</Descriptions.Item>
             )}
@@ -389,21 +384,19 @@ const TaskDetail: React.FC = () => {
 
           {understanding.risk_points && understanding.risk_points.length > 0 && (
             <div style={{ marginTop: 12 }}>
-              <div style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500, marginBottom: 6 }}>
+              <div style={{ color: '#1c1c1c', fontWeight: 500, marginBottom: 6 }}>
                 <WarningOutlined style={{ marginRight: 4 }} />风险点：
               </div>
               <Space size={[8, 4]} wrap>
                 {understanding.risk_points.map((risk: string, i: number) => (
-                  <Tag key={i} style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)', color: '#fff' }}>
-                    {risk}
-                  </Tag>
+                  <Tag key={i}>{risk}</Tag>
                 ))}
               </Space>
             </div>
           )}
 
           {understanding.coverage && (
-            <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.9)' }}>
+            <div style={{ marginTop: 12, color: '#6b6560' }}>
               <BulbOutlined style={{ marginRight: 4 }} />
               预计覆盖范围：{understanding.coverage}
             </div>

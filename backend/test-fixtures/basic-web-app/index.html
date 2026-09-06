@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>基础 UI 测试页面</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    label { display: block; margin: 12px 0 4px; }
+    input, select, button, textarea { font-size: 14px; }
+    .row { margin: 12px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    td, th { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+    dialog { border: 1px solid #999; padding: 16px; }
+    .hidden { display: none; }
+    .ok { color: #0a7; }
+    .err { color: #c33; }
+    .tabs button[aria-selected="true"] { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>基础 UI 测试页面</h1>
+  <p>用于回归：输入、点击、选择、弹窗、表格、分页和搜索。</p>
+
+  <form id="login-form">
+    <label for="username">用户名</label>
+    <input id="username" name="username" data-testid="username" placeholder="请输入用户名" />
+
+    <label for="password">密码</label>
+    <input id="password" name="password" type="password" data-testid="password" placeholder="请输入密码" />
+
+    <div class="row">
+      性别：
+      <label><input type="radio" name="gender" value="male" /> 男</label>
+      <label><input type="radio" name="gender" value="female" /> 女</label>
+    </div>
+
+    <label for="role">角色</label>
+    <select id="role" name="role" data-testid="role">
+      <option value="admin">管理员</option>
+      <option value="user">普通用户</option>
+    </select>
+
+    <div class="row">
+      <label><input id="notify" type="checkbox" data-testid="notify" /> 接收通知</label>
+    </div>
+
+    <div class="row">
+      <button type="button" id="login-btn" data-testid="login-btn">登录</button>
+      <button type="button" id="clear-btn" data-testid="clear-btn">清空输入</button>
+      <button type="button" id="open-modal" data-testid="open-modal">打开弹窗</button>
+      <button type="submit" id="submit-btn" data-testid="submit-btn">提交</button>
+    </div>
+  </form>
+
+  <p id="login-result" data-testid="login-result"></p>
+
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-users" aria-selected="true" data-testid="tab-users">用户</button>
+    <button type="button" role="tab" id="tab-search" aria-selected="false" data-testid="tab-search">搜索</button>
+  </div>
+  <div id="panel-users">
+    <table>
+      <thead><tr><th>用户</th><th>角色</th></tr></thead>
+      <tbody id="user-rows">
+        <tr><td>alice</td><td>管理员</td></tr>
+        <tr><td>bob</td><td>普通用户</td></tr>
+      </tbody>
+    </table>
+    <div class="row">
+      <button type="button" id="prev-page" data-testid="prev-page">上一页</button>
+      <span id="page-no" data-testid="page-no">1</span>
+      <button type="button" id="next-page" data-testid="next-page">下一页</button>
+    </div>
+  </div>
+  <div id="panel-search" class="hidden">
+    <label for="search">搜索</label>
+    <input id="search" data-testid="search" placeholder="搜索用户" />
+    <button type="button" id="search-btn" data-testid="search-btn">搜索</button>
+    <p id="search-result" data-testid="search-result"></p>
+  </div>
+
+  <dialog id="demo-modal">
+    <p>这是弹窗</p>
+    <button type="button" id="close-modal" data-testid="close-modal">关闭</button>
+  </dialog>
+
+  <script>
+    const result = document.getElementById("login-result");
+    document.getElementById("login-btn").onclick = () => {
+      const user = document.getElementById("username").value.trim();
+      const pass = document.getElementById("password").value;
+      if (user === "alice" && pass === "pass123") {
+        result.className = "ok";
+        result.textContent = "登录成功";
+      } else {
+        result.className = "err";
+        result.textContent = "登录失败";
+      }
+    };
+    document.getElementById("clear-btn").onclick = () => {
+      document.getElementById("username").value = "";
+      document.getElementById("password").value = "";
+      result.textContent = "";
+    };
+    document.getElementById("open-modal").onclick = () => document.getElementById("demo-modal").showModal();
+    document.getElementById("close-modal").onclick = () => document.getElementById("demo-modal").close();
+    document.getElementById("login-form").onsubmit = (e) => {
+      e.preventDefault();
+      result.textContent = "已提交";
+      result.className = "ok";
+    };
+    document.getElementById("tab-users").onclick = () => {
+      document.getElementById("panel-users").classList.remove("hidden");
+      document.getElementById("panel-search").classList.add("hidden");
+      document.getElementById("tab-users").setAttribute("aria-selected", "true");
+      document.getElementById("tab-search").setAttribute("aria-selected", "false");
+    };
+    document.getElementById("tab-search").onclick = () => {
+      document.getElementById("panel-search").classList.remove("hidden");
+      document.getElementById("panel-users").classList.add("hidden");
+      document.getElementById("tab-search").setAttribute("aria-selected", "true");
+      document.getElementById("tab-users").setAttribute("aria-selected", "false");
+    };
+    document.getElementById("search-btn").onclick = () => {
+      const q = document.getElementById("search").value.trim();
+      document.getElementById("search-result").textContent = q ? "找到: " + q : "请输入关键词";
+    };
+    let page = 1;
+    document.getElementById("next-page").onclick = () => {
+      page += 1;
+      document.getElementById("page-no").textContent = String(page);
+    };
+    document.getElementById("prev-page").onclick = () => {
+      page = Math.max(1, page - 1);
+      document.getElementById("page-no").textContent = String(page);
+    };
+  </script>
+</body>
+</html>

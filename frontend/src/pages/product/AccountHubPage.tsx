@@ -4,17 +4,20 @@ import { Form, Input, Tabs, message, Button } from 'antd';
 import request from '@/services/request';
 import ProfilePage from '../auth/ProfilePage';
 import Settings from '../settings/Settings';
+import AppearanceSettings from '../settings/AppearanceSettings';
 import AdminEnvironments from '../admin/AdminEnvironments';
 import './product.css';
 
 const TAB_PATH: Record<string, string> = {
   profile: '/profile',
+  platform: '/profile/platform',
   ai: '/profile/ai',
   env: '/profile/env',
   security: '/profile/security',
 };
 
 function tabFromLocation(pathname: string, searchTab: string | null): string {
+  if (pathname.endsWith('/platform')) return 'platform';
   if (pathname.endsWith('/ai')) return 'ai';
   if (pathname.endsWith('/env')) return 'env';
   if (pathname.endsWith('/security')) return 'security';
@@ -32,7 +35,7 @@ export default function AccountHubPage() {
     <div className="product-shell">
       <div className="product-hero">
         <h1>个人中心</h1>
-        <p>账号、AI 配置和执行环境都在左侧栏进入，页面框架不会换。</p>
+        <p>账号、平台设置、AI 配置和执行环境都在这里。</p>
       </div>
       <div className="product-card" style={{ paddingTop: 8 }}>
         <Tabs
@@ -40,6 +43,7 @@ export default function AccountHubPage() {
           onChange={(key) => navigate(TAB_PATH[key] || '/profile')}
           items={[
             { key: 'profile', label: '账号信息', children: <ProfilePage embedded /> },
+            { key: 'platform', label: '平台设置', children: <AppearanceSettings /> },
             { key: 'ai', label: 'AI 配置', children: <Settings /> },
             { key: 'env', label: '执行环境', children: <AdminEnvironments /> },
             { key: 'security', label: '安全设置', children: <SecurityPanel /> },

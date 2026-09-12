@@ -22,18 +22,19 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   margin: 0 0 8px;
+  color: var(--text);
 }
 
 .product-hero p {
-  color: #6b6560;
+  color: var(--text-muted);
   font-size: 15px;
   margin: 0;
   line-height: 1.6;
 }
 
 .product-card {
-  background: #fff;
-  border: 1px solid #e6e1d8;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 20px;

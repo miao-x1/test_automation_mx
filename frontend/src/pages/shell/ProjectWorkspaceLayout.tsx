@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { message } from 'antd';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
-import { fetchProjectUnderstanding, openProjectAgent } from '@/services/projectExplorer';
+import { fetchProjectUnderstanding } from '@/services/projectExplorer';
 import { PROJECT_NAV, appNavOfPath, navGroupOfPath } from './nav';
 import { HeaderTools, WorkspaceTopBar } from './ProjectHeaderBar';
 import ProjectCreateDrawer from './ProjectCreateDrawer';
@@ -41,14 +41,17 @@ export default function ProjectWorkspaceLayout() {
     }).catch(() => undefined);
   }, [location.pathname, projectName]);
 
-  const goWorkbench = () => {
+  const toggleWorkspace = () => {
+    setWorkspaceOpen((open) => !open);
+  };
+
+  const goWorkspaceChild = (path: string) => {
     if (!getCurrentProjectId()) {
       message.info('请先在项目管理中选择一个项目');
       navigate('/projects');
       return;
     }
-    setWorkspaceOpen(true);
-    navigate('/workbench');
+    navigate(path);
   };
 
   return (
@@ -59,9 +62,6 @@ export default function ProjectWorkspaceLayout() {
           <b>自动化测试平台</b>
         </span>
         <div className="pw-top-right">
-          <button type="button" className="pw-agent-btn" onClick={() => openProjectAgent()} aria-label="AI 项目助手">
-            ✦ 助手
-          </button>
           <HeaderTools />
         </div>
       </header>
@@ -75,45 +75,26 @@ export default function ProjectWorkspaceLayout() {
             >
               项目管理
             </button>
-            <div className={`pw-nav-item pw-nav-first pw-nav-split ${first === 'workspace' && selected === 'workbench' ? 'is-on' : ''}`}>
-              <button type="button" className="pw-nav-text" onClick={goWorkbench}>项目工作台</button>
-              <button
-                type="button"
-                className="pw-nav-caret-right"
-                aria-label={workspaceOpen ? '收起项目工作台' : '展开项目工作台'}
-                onClick={() => {
-                  if (!getCurrentProjectId()) {
-                    message.info('请先在项目管理中选择一个项目');
-                    navigate('/projects');
-                    return;
-                  }
-                  if (workspaceOpen) setWorkspaceOpen(false);
-                  else {
-                    setWorkspaceOpen(true);
-                    if (!inWorkspace) navigate('/workbench');
-                  }
-                }}
-              >
-                {workspaceOpen ? '▾' : '▸'}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="pw-nav-item pw-nav-first pw-nav-split"
+              aria-expanded={workspaceOpen}
+              aria-label={workspaceOpen ? '收起项目工作台' : '展开项目工作台'}
+              onClick={toggleWorkspace}
+            >
+              <span className="pw-nav-text">项目工作台</span>
+              <span className="pw-nav-caret-right" aria-hidden="true">{workspaceOpen ? '▾' : '▸'}</span>
+            </button>
             {workspaceOpen ? PROJECT_NAV.map((item) => (
               <button
                 key={item.key}
                 type="button"
                 className={`pw-nav-l2 ${selected === item.key ? 'is-on' : ''}`}
-                onClick={() => navigate(item.path)}
+                onClick={() => goWorkspaceChild(item.path)}
               >
                 {item.label}
               </button>
             )) : null}
-            <button
-              type="button"
-              className={`pw-nav-item pw-nav-first ${first === 'knowledge' ? 'is-on' : ''}`}
-              onClick={() => navigate('/knowledge')}
-            >
-              知识
-            </button>
           </div>
         </nav>
         <main className="pw-main">

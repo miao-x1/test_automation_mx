@@ -1,6 +1,6 @@
 /**
- * 登录后一级目录：项目管理 / 项目工作台 / 知识。
- * 项目工作台内沿用理解、设计、任务、执行。
+ * 登录后一级目录：项目管理 / 项目工作台。
+ * 项目工作台内沿用理解、设计、任务、执行、知识。
  */
 import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
 
@@ -106,6 +106,7 @@ function AppRoutes() {
           <Route path="/workspace/project/:id" element={<ProjectPage />} />
           <Route path="/workspace/invite/:token" element={<InvitePage />} />
           <Route path="/profile" element={<AccountHubPage />} />
+          <Route path="/profile/platform" element={<AccountHubPage />} />
           <Route path="/profile/ai" element={<AccountHubPage />} />
           <Route path="/profile/env" element={<AccountHubPage />} />
           <Route path="/profile/security" element={<AccountHubPage />} />
@@ -126,8 +127,8 @@ function AppRoutes() {
 
         <Route element={<ProjectWorkspaceLayout />}>
           <Route path="/projects" element={<ProjectCenterPage />} />
-          <Route path="/knowledge" element={<KnowledgeCenter />} />
           <Route element={<RequireProject />}>
+          <Route path="/knowledge" element={<KnowledgeCenter />} />
           <Route path="/workbench" element={<ProjectWorkbenchPage />} />
           <Route path="/understand" element={<UnderstandLayout />}>
             <Route index element={<OverviewSection />} />

@@ -8,10 +8,9 @@ export type ProjectNavGroup = {
   children?: ProjectNavChild[];
 };
 
-export type AppNavKey = 'manage' | 'workspace' | 'knowledge';
+export type AppNavKey = 'manage' | 'workspace';
 
 export function appNavOfPath(pathname: string): AppNavKey {
-  if (pathname.startsWith('/knowledge')) return 'knowledge';
   if (pathname === '/projects' || pathname.startsWith('/projects')) return 'manage';
   return 'workspace';
 }
@@ -56,6 +55,11 @@ export const PROJECT_NAV: ProjectNavGroup[] = [
       { key: 'reports', label: '测试报告', path: '/report' },
     ],
   },
+  {
+    key: 'knowledge',
+    label: '知识',
+    path: '/knowledge',
+  },
 ];
 
 export function navGroupOfPath(pathname: string): string {
@@ -68,6 +72,7 @@ export function navGroupOfPath(pathname: string): string {
     || pathname.startsWith('/report')
     || pathname.startsWith('/performance')
   ) return 'execute';
+  if (pathname.startsWith('/knowledge')) return 'knowledge';
   if (pathname.startsWith('/workbench')) return 'workbench';
   return 'workbench';
 }

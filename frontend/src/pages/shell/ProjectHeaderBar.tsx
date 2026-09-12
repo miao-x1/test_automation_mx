@@ -4,6 +4,7 @@ import { Avatar, Dropdown, Input, Popover, message } from 'antd';
 import { getStoredUser, logout, type UserInfo } from '@/services/auth';
 import { fetchWorkspace, type Project } from '@/services/workspace';
 import { getCurrentProjectId, setCurrentProjectId, PROJECT_CHANGED } from '@/pages/product/projectStore';
+import { openProjectAgent } from '@/services/projectExplorer';
 
 export function UserMenu() {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export function UserMenu() {
         items: [
           { key: 'projects', label: '项目管理', onClick: () => navigate('/projects') },
           { key: 'profile', label: '个人中心', onClick: () => navigate('/profile') },
+          { key: 'platform', label: '平台设置', onClick: () => navigate('/profile/platform') },
           { key: 'system', label: '系统管理', onClick: () => navigate('/system') },
           { key: 'logout', label: '退出登录', onClick: async () => {
             await logout();
@@ -92,17 +94,27 @@ export function WorkspaceTopBar({
 }) {
   return (
     <div className="pw-workspace-top">
-      <Popover trigger="click" placement="bottomLeft" content={<ProjectSwitcherMenu onCreate={onCreate} />}>
-        <button type="button" className="pw-switch">
-          <span className="pw-mark">{(projectName || 'P').slice(0, 1)}</span>
-          <b>{projectName || '当前项目'}</b>
-          <span>▼</span>
-        </button>
-      </Popover>
-      <span className="pw-workspace-status">
-        <i className={`pw-dot ${status === 'ready' ? 'ok' : status === 'empty' ? '' : 'warn'}`} />
-        {status === 'ready' ? '项目正常' : status === 'empty' ? '尚未分析' : '部分完成'}
-      </span>
+      <div className="pw-workspace-left">
+        <Popover trigger="click" placement="bottomLeft" content={<ProjectSwitcherMenu onCreate={onCreate} />}>
+          <button type="button" className="pw-switch">
+            <span className="pw-mark">{(projectName || 'P').slice(0, 1)}</span>
+            <b>{projectName || '当前项目'}</b>
+            <span>▼</span>
+          </button>
+        </Popover>
+        <span className="pw-workspace-status">
+          <i className={`pw-dot ${status === 'ready' ? 'ok' : status === 'empty' ? '' : 'warn'}`} />
+          {status === 'ready' ? '项目正常' : status === 'empty' ? '尚未分析' : '部分完成'}
+        </span>
+      </div>
+      <button
+        type="button"
+        className="pw-agent-btn"
+        onClick={() => openProjectAgent()}
+        aria-label={`agent助手，当前项目 ${projectName || '当前项目'}`}
+      >
+        agent助手
+      </button>
     </div>
   );
 }
@@ -110,13 +122,10 @@ export function WorkspaceTopBar({
 export function HeaderTools() {
   return (
     <>
-      <Popover content="在当前项目里搜索页面、功能、接口或用例，请使用各工作区顶部的搜索框。" trigger="click">
-        <button className="pw-icon-btn" type="button" aria-label="搜索">🔍</button>
-      </Popover>
       <Popover content="通知会来自当前项目的执行失败和任务状态。现在没有独立通知服务。" trigger="click">
         <button className="pw-icon-btn" type="button" aria-label="通知">通知</button>
       </Popover>
-      <Popover content="项目是容器。项目理解、测试设计、测试任务、测试执行是项目内工作区。AI 助手贯穿这四个工作区。" trigger="click">
+      <Popover content="项目是容器。项目理解、测试设计、测试任务、测试执行、知识是项目内工作区。agent助手对应选中的项目。" trigger="click">
         <button className="pw-icon-btn" type="button" aria-label="帮助">帮助</button>
       </Popover>
       <UserMenu />

@@ -1,3 +1,32 @@
+:root,
+[data-theme="light"] {
+  --bg-page: #f6f8fa;
+  --bg-surface: #ffffff;
+  --bg-hover: #f6f8fa;
+  --bg-selected: #eaeef2;
+  --text: #1f2328;
+  --text-muted: #656d76;
+  --border: #d0d7de;
+  --border-strong: #afb8c1;
+  --accent: #0969da;
+  --mark-bg: #1f2328;
+  --mark-fg: #ffffff;
+}
+
+[data-theme="dark"] {
+  --bg-page: #0d1117;
+  --bg-surface: #161b22;
+  --bg-hover: #21262d;
+  --bg-selected: #21262d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --border: #30363d;
+  --border-strong: #484f58;
+  --accent: #4493f8;
+  --mark-bg: #e6edf3;
+  --mark-fg: #0d1117;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -12,8 +41,8 @@ body,
 
 body {
   font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  background: #f6f8fa;
-  color: #1f2328;
+  background: var(--bg-page);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
 

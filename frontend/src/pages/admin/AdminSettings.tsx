@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, Form, Input, Switch, Button, Spin, message } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import { PageHeader } from '../../components/UI';
+import AppearanceSettings from '../settings/AppearanceSettings';
 import request from '../../services/request';
 
 interface SettingsData {
@@ -59,6 +60,9 @@ export default function AdminSettings() {
   return (
     <div>
       <PageHeader title="系统配置" subtitle="系统全局参数和功能开关" icon={<SettingOutlined />} />
+      <Card style={{ marginBottom: 16 }}>
+        <AppearanceSettings />
+      </Card>
       <Card>
         <Spin spinning={loading}>
           <Form form={form} layout="vertical" style={{ maxWidth: 600 }}>

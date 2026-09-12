@@ -95,7 +95,7 @@ export default function ProjectAgentDock() {
 
   return (
     <Drawer
-      title="✦ AI 项目助手"
+      title="agent助手"
       extra={<span style={{ color: '#656d76' }}>{getCurrentProjectName() || '当前项目'}</span>}
       open={open}
       onClose={() => setOpen(false)}

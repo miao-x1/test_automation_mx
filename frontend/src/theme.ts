@@ -1,7 +1,8 @@
 import type { ThemeConfig } from 'antd';
+import { theme } from 'antd';
 
 /** 全局高级简约主题：暖灰纸面 + 墨色主按钮，无渐变、无重阴影 */
-export const appTheme: ThemeConfig = {
+export const lightTheme: ThemeConfig = {
   token: {
     colorPrimary: '#1c1c1c',
     colorInfo: '#1c1c1c',
@@ -70,3 +71,76 @@ export const appTheme: ThemeConfig = {
     },
   },
 };
+
+export const darkTheme: ThemeConfig = {
+  algorithm: theme.darkAlgorithm,
+  token: {
+    colorPrimary: '#4493f8',
+    colorInfo: '#4493f8',
+    colorSuccess: '#3fb950',
+    colorWarning: '#d29922',
+    colorError: '#f85149',
+    colorText: '#e6edf3',
+    colorTextSecondary: '#8b949e',
+    colorBorder: '#30363d',
+    colorBorderSecondary: '#21262d',
+    colorBgLayout: '#0d1117',
+    colorBgContainer: '#161b22',
+    colorBgElevated: '#1c2128',
+    borderRadius: 6,
+    fontFamily:
+      '"Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+    fontSize: 14,
+    controlHeight: 36,
+    boxShadow: 'none',
+    boxShadowSecondary: 'none',
+  },
+  components: {
+    Button: {
+      primaryShadow: 'none',
+      defaultShadow: 'none',
+      dangerShadow: 'none',
+    },
+    Card: {
+      paddingLG: 20,
+    },
+    Layout: {
+      headerBg: '#161b22',
+      bodyBg: '#0d1117',
+      siderBg: '#161b22',
+      triggerBg: '#161b22',
+      triggerColor: '#8b949e',
+    },
+    Menu: {
+      darkItemBg: '#161b22',
+      darkSubMenuItemBg: '#161b22',
+      darkItemSelectedBg: '#21262d',
+      darkItemHoverBg: '#21262d',
+      darkItemColor: '#8b949e',
+      darkItemSelectedColor: '#e6edf3',
+      itemBorderRadius: 4,
+    },
+    Table: {
+      headerBg: '#21262d',
+      headerColor: '#8b949e',
+      rowHoverBg: '#21262d',
+    },
+    Input: {
+      activeShadow: 'none',
+    },
+    Tag: {
+      defaultBg: '#21262d',
+      defaultColor: '#8b949e',
+    },
+    Tabs: {
+      itemActiveColor: '#e6edf3',
+      itemSelectedColor: '#e6edf3',
+      inkBarColor: '#4493f8',
+    },
+    Statistic: {
+      contentFontSize: 28,
+    },
+  },
+};
+
+export const appTheme = lightTheme;

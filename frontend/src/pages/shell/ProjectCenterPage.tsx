@@ -66,7 +66,7 @@ export default function ProjectCenterPage() {
       <div className="pc-head">
         <div>
           <h1>项目管理</h1>
-          <p>横向查看全部项目。新建、导入或删除后，到项目工作台继续工作。</p>
+          <p>一行列出一个项目。新建、导入或删除后，到项目工作台继续工作。</p>
         </div>
         <Space>
           <Input allowClear placeholder="搜索项目" value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
@@ -75,11 +75,23 @@ export default function ProjectCenterPage() {
         </Space>
       </div>
       {!loaded ? <Empty description="正在加载项目…" /> : visible.length === 0 ? <Empty description="还没有项目" /> : (
-        <div className="pc-row">
+        <div className="pc-list">
           {visible.map((project) => {
             const extra = extras[project.id] || { type: project.description || '项目', pages: null, cases: null, updated: project.last_test_at };
             return (
-              <div key={project.id} className={`pc-card ${selectedId === project.id ? 'is-on' : ''}`}>
+              <div key={project.id} className={`pc-item ${selectedId === project.id ? 'is-on' : ''}`}>
+                <button type="button" className="pc-item-main" onClick={() => select(project)}>
+                  <span className="pc-mark">{project.name.slice(0, 1)}</span>
+                  <span className="pc-item-id">
+                    <b>{project.name}</b>
+                    <span className="muted">{extra.type}{project.organization_name ? ` · ${project.organization_name}` : ''}</span>
+                  </span>
+                  <span className="pc-item-meta">
+                    <span>{extra.pages == null ? '-' : extra.pages} 页面</span>
+                    <span>{extra.cases == null ? '-' : extra.cases} 用例</span>
+                    <span>更新 {formatAgo(extra.updated)}</span>
+                  </span>
+                </button>
                 <Dropdown
                   menu={{
                     items: [
@@ -104,20 +116,8 @@ export default function ProjectCenterPage() {
                     ],
                   }}
                 >
-                  <button className="pc-card-more" type="button">···</button>
+                  <button className="pc-item-more" type="button" aria-label={`${project.name} 更多`}>···</button>
                 </Dropdown>
-                <button type="button" className="pc-card-btn" onClick={() => select(project)}>
-                  <div className="pc-card-top">
-                    <span className="pc-mark">{project.name.slice(0, 1)}</span>
-                    <b>{project.name}</b>
-                  </div>
-                  <div className="muted">{extra.type}</div>
-                  <div className="stats">
-                    <span>{extra.pages == null ? '-' : extra.pages} 页面</span>
-                    <span>{extra.cases == null ? '-' : extra.cases} 用例</span>
-                  </div>
-                  <div className="muted">最近更新 {formatAgo(extra.updated)}</div>
-                </button>
               </div>
             );
           })}

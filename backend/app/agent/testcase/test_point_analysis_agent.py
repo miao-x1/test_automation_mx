@@ -73,12 +73,14 @@ class TestPointAnalysisAgent(NewBaseAgent):
 
         self.logger.info(f"[测试点分析] 开始分析 | 模块: {business_module}")
 
-        # 构建提示词
+        from app.knowledge.testing_expert import expert_prompt_for
+
         user_prompt = TestPointPrompt.build(
             business_module=business_module,
             function_points=function_points,
             business_flow=business_flow,
             test_scope=test_scope,
+            expert_context=expert_prompt_for(f"{business_module} {function_points}"),
         )
 
         # 调用LLM

@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, Table, Button, Input, Tag, Space, message, Typography } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Card, Drawer, Descriptions, Table, Button, Input, Tag, Space, message, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import request from '@/services/request';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
 
 const { Title } = Typography;
 
 export default function TaskListPage() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -16,6 +14,7 @@ export default function TaskListPage() {
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
   const [projectName, setProjectName] = useState(getCurrentProjectName());
+  const [detail, setDetail] = useState<any | null>(null);
 
   const fetchData = useCallback(async (p: number, ps: number, kw: string) => {
     setLoading(true);
@@ -58,11 +57,6 @@ export default function TaskListPage() {
     <div>
       <Card
         title={<Title level={4} style={{ margin: 0 }}>测试任务{projectName ? ` · ${projectName}` : ''}</Title>}
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/task/create')}>
-            创建测试
-          </Button>
-        }
       >
         <Space style={{ marginBottom: 16 }}>
           <Input.Search
@@ -93,7 +87,7 @@ export default function TaskListPage() {
             { title: 'ID', dataIndex: 'id', width: 70 },
             { title: '任务名称', dataIndex: 'task_name', ellipsis: true,
               render: (name: string, r: any) => (
-                <Button type="link" onClick={() => navigate(`/task/${r.id}/detail`)}>{name || r.requirement || `任务 #${r.id}`}</Button>
+                <Button type="link" onClick={() => setDetail(r)}>{name || r.requirement || `任务 #${r.id}`}</Button>
               ),
             },
             { title: '状态', dataIndex: 'status', width: 100,
@@ -113,12 +107,29 @@ export default function TaskListPage() {
             },
             { title: '操作', width: 120, fixed: 'right' as const,
               render: (_: any, r: any) => (
-                <Button type="link" size="small" onClick={() => navigate(`/task/${r.id}/detail`)}>查看详情</Button>
+                <Button type="link" size="small" onClick={() => setDetail(r)}>查看详情</Button>
               ),
             },
           ]}
         />
       </Card>
+      <Drawer
+        title={detail ? (detail.task_name || detail.requirement || `任务 #${detail.id}`) : '任务详情'}
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        width={520}
+      >
+        {detail ? (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="ID">{detail.id}</Descriptions.Item>
+            <Descriptions.Item label="名称">{detail.task_name || detail.requirement || '-'}</Descriptions.Item>
+            <Descriptions.Item label="状态">{detail.status || '-'}</Descriptions.Item>
+            <Descriptions.Item label="类型">{detail.task_type || '-'}</Descriptions.Item>
+            <Descriptions.Item label="创建时间">{detail.created_at || '-'}</Descriptions.Item>
+            {detail.requirement ? <Descriptions.Item label="需求">{detail.requirement}</Descriptions.Item> : null}
+          </Descriptions>
+        ) : null}
+      </Drawer>
     </div>
   );
 }

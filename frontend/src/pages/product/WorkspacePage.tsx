@@ -8,7 +8,8 @@ import {
   type Organization,
   type Project,
 } from '@/services/workspace';
-import { setCurrentProjectId, resolveProjectId } from './projectStore';
+import { getCurrentProjectId, setCurrentProjectId, resolveProjectId } from './projectStore';
+import { WORKSPACE_LINKS } from './pillarNav';
 import './product.css';
 
 const STATUS_TEXT: Record<string, { color: string; text: string }> = {
@@ -52,6 +53,7 @@ export default function WorkspacePage() {
 
   const personal = orgs.filter((org) => org.is_personal);
   const teams = orgs.filter((org) => !org.is_personal);
+  const currentProject = projects.find((item) => item.id === getCurrentProjectId()) || projects[0];
 
   const load = async () => {
     const data = await fetchWorkspace();
@@ -71,30 +73,61 @@ export default function WorkspacePage() {
 
   const openProject = (project: Project) => {
     setCurrentProjectId(project.id);
-    navigate('/task/create');
+    navigate(`/workspace/project/${project.id}`);
   };
 
-  const enterTest = async () => {
-    try {
-      const projectId = await resolveProjectId();
-      if (!projectId) {
-        setProjectOpen(true);
-        message.warning('先创建一个项目');
-        return;
-      }
-      navigate('/task/create');
-    } catch {
-      message.error('无法进入测试');
+  const enterWork = async (path: string) => {
+    const projectId = await resolveProjectId();
+    if (!projectId) {
+      setProjectOpen(true);
+      message.warning('先选择或创建一个项目');
+      return;
     }
+    navigate(path);
   };
 
   return (
     <div className="product-shell product-wide">
       <div className="product-hero">
         <h1>工作空间</h1>
-        <p>团队和项目在这里管理。测试入口还是原来的「开始测试」。</p>
-        <div className="product-cta" style={{ justifyContent: 'flex-start', marginTop: 16 }}>
-          <Button type="primary" size="large" onClick={() => void enterTest()}>开始测试</Button>
+        <p>选择项目、查看当前状态，再进入项目理解、测试设计或测试执行。这里是开始工作的入口，不是测试产物目录。</p>
+      </div>
+
+      {currentProject && (
+        <div className="product-summary">
+          <div className="product-stat">
+            <b>{currentProject.name}</b>
+            <span>当前项目 · {currentProject.organization_name || '组织'}</span>
+          </div>
+          <div className="product-stat">
+            <b>{STATUS_TEXT[currentProject.status || 'IDLE']?.text || '尚未测试'}</b>
+            <span>当前测试状态</span>
+          </div>
+          <div className="product-stat">
+            <b>{currentProject.success_rate != null ? `${currentProject.success_rate}%` : '-'}</b>
+            <span>测试进度 / 成功率</span>
+          </div>
+          <div className="product-stat">
+            <b>{currentProject.job_count ?? recentJobs.length}</b>
+            <span>测试任务</span>
+          </div>
+        </div>
+      )}
+
+      <div className="product-card">
+        <h2>工作入口</h2>
+        <div className="product-modes">
+          {WORKSPACE_LINKS.map((item) => (
+            <button
+              key={item.path}
+              type="button"
+              className="product-mode"
+              onClick={() => void enterWork(item.path)}
+            >
+              <h3>{item.title}</h3>
+              <p>{item.desc}</p>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -138,7 +171,7 @@ export default function WorkspacePage() {
                     {project.success_rate != null ? `成功率 ${project.success_rate}%` : '还没有测试'}
                     {project.last_test_at ? ` · ${project.last_test_at}` : ''}
                   </em>
-                  <em>进入测试</em>
+                  <em>进入项目</em>
                   <Tag color={status.color}>{status.text}</Tag>
                 </button>
               );
@@ -148,12 +181,12 @@ export default function WorkspacePage() {
       </div>
 
       <div className="product-card">
-        <h2>最近活动</h2>
+        <h2>最近测试活动</h2>
         {recentActivity.length === 0 ? <Empty description="还没有测试活动记录" /> : recentActivity.map((item, index) => (
           <button key={`${item.project_id}-${index}`} type="button" className="product-result-item" onClick={() => {
             if (item.project_id) {
               setCurrentProjectId(item.project_id);
-              navigate('/dashboard');
+              navigate('/task');
             }
           }}>
             <span>{item.title}</span>
@@ -169,7 +202,7 @@ export default function WorkspacePage() {
           {recentJobs.length === 0 ? <Empty description="还没有测试任务" /> : recentJobs.map((job) => (
             <button key={job.id} type="button" className="product-result-item" onClick={() => {
               setCurrentProjectId(job.project_id);
-              navigate('/dashboard');
+              navigate('/task');
             }}>
               <span>{job.name}</span>
               <Tag>{job.status}</Tag>
@@ -223,7 +256,7 @@ export default function WorkspacePage() {
           projectForm.resetFields();
           if (created?.id) {
             setCurrentProjectId(created.id);
-            navigate('/dashboard');
+            navigate(`/workspace/project/${created.id}`);
           } else {
             load();
           }

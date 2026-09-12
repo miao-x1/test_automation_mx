@@ -12,8 +12,8 @@ body,
 
 body {
   font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  background: #f3f1ec;
-  color: #1c1c1c;
+  background: #f6f8fa;
+  color: #1f2328;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -34,7 +34,137 @@ a {
 }
 
 .ant-layout-sider {
-  border-right: 1px solid #1c1c1c;
+  border-right: 1px solid #d0d7de;
+}
+
+.app-sider.ant-layout-sider {
+  background: #fff !important;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-sider-brand {
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.app-sider-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: #1f2328;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.app-sider-brand b {
+  font-size: 14px;
+  color: #1f2328;
+  white-space: nowrap;
+}
+
+.app-sider .ant-menu {
+  flex: 1;
+  overflow: auto;
+  background: transparent;
+  border-inline-end: 0 !important;
+  padding: 8px 0;
+  font-size: 13px;
+  color: #1f2328;
+}
+
+.app-sider .ant-menu-item,
+.app-sider .ant-menu-submenu-title {
+  margin: 2px 8px !important;
+  width: calc(100% - 16px) !important;
+  height: 34px !important;
+  line-height: 34px !important;
+  border-radius: 6px;
+  color: #1f2328 !important;
+}
+
+.app-sider .ant-menu-item:hover,
+.app-sider .ant-menu-submenu-title:hover {
+  background: #f6f8fa !important;
+}
+
+.app-sider .ant-menu-item-selected {
+  background: #eaeef2 !important;
+}
+
+.app-sider .ant-menu-item-selected::after {
+  display: none !important;
+}
+
+.app-sider .ant-menu-item-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: #0969da;
+  border-radius: 1px;
+}
+
+.app-sider .ant-menu-item-selected .ant-menu-item-icon,
+.app-sider .ant-menu-item-selected .anticon {
+  color: #0969da;
+}
+
+.app-sider .ant-menu-item-icon,
+.app-sider .ant-menu-submenu-title .anticon {
+  color: #656d76;
+  font-size: 14px;
+}
+
+.app-sider .ant-menu-item-group-title {
+  padding: 10px 18px 6px;
+  color: #656d76;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.app-sider .ant-menu-sub {
+  background: transparent !important;
+}
+
+.app-sider .ant-menu-item-divider,
+.app-sider .ant-menu-item-group + .ant-menu-item-group {
+  margin-top: 4px;
+}
+
+.app-sider .ant-layout-sider-trigger {
+  background: #fff;
+  color: #656d76;
+  border-top: 1px solid #d0d7de;
+  height: 40px;
+  line-height: 40px;
+}
+
+.app-header.ant-layout-header {
+  background: #fff;
+  height: 56px;
+  line-height: 56px;
+  padding: 0 20px;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.app-header .ant-typography {
+  color: #1f2328;
+  font-size: 14px;
 }
 
 .ant-btn-link {

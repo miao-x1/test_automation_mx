@@ -308,9 +308,14 @@ class TestCaseGeneratorAgent(BaseRoutedAgent):
         logger.info(f"[TestCaseGeneratorAgent] 开始生成用例 | 测试点: {point_name}")
 
         # 构建提示词
+        from app.knowledge.testing_expert import expert_prompt_for
+
         user_prompt = TestCaseGeneratePrompt.build(
             test_point=test_point,
             rag_context=rag_context,
+            expert_context=expert_prompt_for(
+                f"{test_point.get('name', '')} {test_point.get('scenario', '')}"
+            ),
         )
 
         # 调用 LLM 生成用例

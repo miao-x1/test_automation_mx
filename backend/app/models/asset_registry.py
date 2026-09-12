@@ -39,6 +39,7 @@ class AssetRegistryType:
       - test_data:     测试数据 (无既有表, 内容存 extra_metadata)
       - test_report:   测试报告 (关联 execution 表)
       - requirement:   需求 (关联 requirement_task 表)
+      - test_plan / test_design / execution / defect / regression / archive
     """
     API_ENDPOINT = "api_endpoint"
     UI_ELEMENT = "ui_element"
@@ -48,10 +49,17 @@ class AssetRegistryType:
     TEST_DATA = "test_data"
     TEST_REPORT = "test_report"
     REQUIREMENT = "requirement"
+    TEST_PLAN = "test_plan"
+    TEST_DESIGN = "test_design"
+    EXECUTION = "execution"
+    DEFECT = "defect"
+    REGRESSION = "regression"
+    ARCHIVE = "archive"
 
     ALL = (
         API_ENDPOINT, UI_ELEMENT, TEST_CASE, TEST_ASSET,
         SCRIPT, TEST_DATA, TEST_REPORT, REQUIREMENT,
+        TEST_PLAN, TEST_DESIGN, EXECUTION, DEFECT, REGRESSION, ARCHIVE,
     )
 
 
@@ -85,6 +93,7 @@ class AssetRegistrySource:
       - har:     从 HAR 文件导入
       - import:  其他来源导入
       - ai:      AI 自动生成
+      - auto:    系统自动沉淀
     """
     MANUAL = "manual"
     SWAGGER = "swagger"
@@ -92,8 +101,9 @@ class AssetRegistrySource:
     HAR = "har"
     IMPORT = "import"
     AI = "ai"
+    AUTO = "auto"
 
-    ALL = (MANUAL, SWAGGER, POSTMAN, HAR, IMPORT, AI)
+    ALL = (MANUAL, SWAGGER, POSTMAN, HAR, IMPORT, AI, AUTO)
 
 
 class AssetRelationType:
@@ -108,6 +118,10 @@ class AssetRelationType:
       - VERIFIES:        源验证目标 (用例验证接口 / 用例验证页面)
       - CONTAINS:        源包含目标 (页面包含元素 / 用例包含步骤)
       - CONFLICTS_WITH:  源与目标冲突 (用例与用例覆盖冲突)
+      - PRODUCES:        源产出目标 (用例→脚本→执行)
+      - CAUSED:          源导致目标 (执行→缺陷)
+      - REGRESSED:       源回归验证目标 (回归→缺陷)
+      - REPORTS:         源汇总目标 (报告→链路)
     """
     DEPENDS_ON = "DEPENDS_ON"
     USED_BY = "USED_BY"
@@ -117,10 +131,15 @@ class AssetRelationType:
     VERIFIES = "VERIFIES"
     CONTAINS = "CONTAINS"
     CONFLICTS_WITH = "CONFLICTS_WITH"
+    PRODUCES = "PRODUCES"
+    CAUSED = "CAUSED"
+    REGRESSED = "REGRESSED"
+    REPORTS = "REPORTS"
 
     ALL = (
         DEPENDS_ON, USED_BY, IMPLEMENTS, COVERS,
         DERIVED_FROM, VERIFIES, CONTAINS, CONFLICTS_WITH,
+        PRODUCES, CAUSED, REGRESSED, REPORTS,
     )
 
 

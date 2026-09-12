@@ -749,6 +749,11 @@ class RequirementFlowService:
                                 log.warning(f"自动缺陷分析失败: {ae}")
 
                         update_db.commit()
+                        try:
+                            from app.services.asset_lifecycle import AssetLifecycleService
+                            AssetLifecycleService().sink_execution(exec_record_update)
+                        except Exception as sink_exc:
+                            log.warning(f"执行产物沉淀失败: {sink_exc}")
 
                         yield json.dumps({
                             "step": "执行完成",
@@ -1155,6 +1160,11 @@ class RequirementFlowService:
                         log.warning(f"自动缺陷分析失败: {ae}")
 
                     update_db.commit()
+                    try:
+                        from app.services.asset_lifecycle import AssetLifecycleService
+                        AssetLifecycleService().sink_execution(exec_record_update)
+                    except Exception as sink_exc:
+                        log.warning(f"执行产物沉淀失败: {sink_exc}")
 
                     yield json.dumps({
                         "step": "执行失败",

@@ -57,22 +57,16 @@ export default function ProjectPage() {
     if (!projectId) return;
     load().catch(() => {
       message.error('没有该项目的权限');
-      navigate('/workspace');
+      navigate('/projects');
     });
   }, [projectId]);
 
   return (
     <div className="product-shell product-wide">
       <div className="product-hero">
-        <p><Link to="/workspace">工作空间</Link> / {project?.organization_name}</p>
+        <p><Link to="/projects">项目中心</Link> / {project?.organization_name}</p>
         <h1>{project?.name || '项目'}</h1>
-        <p>{project?.description || '进入后使用原来的测试平台。'}</p>
-        <div className="product-cta">
-          <Button type="primary" onClick={() => {
-            setCurrentProjectId(projectId);
-            navigate('/task/create');
-          }}>进入测试平台</Button>
-        </div>
+        <p>{project?.description || '在这里管理项目成员和项目设置。'}</p>
       </div>
 
       <div className="product-card">
@@ -135,7 +129,7 @@ export default function ProjectPage() {
           <Popconfirm title="删除后成员将无法再进入" onConfirm={async () => {
             await deleteProject(projectId);
             message.success('项目已删除');
-            navigate('/workspace');
+            navigate('/projects');
           }}>
             <Button danger style={{ marginTop: 24 }}>删除项目</Button>
           </Popconfirm>

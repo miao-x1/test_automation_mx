@@ -20,6 +20,8 @@ from app.models.test_job import (
     JobStatus,
 )
 from app.models.assessment import PerformanceAssessment, PerformanceAssessmentMetric
+from app.models.project_explorer import ProjectSource, ProjectCodeIndex, ProjectMemoryItem
+from app.models.project_test_task import ProjectTestTask
 from app.models.verification_code import VerificationCode
 from app.models.task import Task, TaskStatus, InputMode, TaskType
 from app.models.test_asset import TestAsset, AssetType, AssetStatus, SourceType, AssetSource
@@ -170,6 +172,10 @@ __all__ = [
     "JobStatus",
     "PerformanceAssessment",
     "PerformanceAssessmentMetric",
+    "ProjectSource",
+    "ProjectCodeIndex",
+    "ProjectMemoryItem",
+    "ProjectTestTask",
     "VerificationCode",
     "Task",
     "TaskStatus",

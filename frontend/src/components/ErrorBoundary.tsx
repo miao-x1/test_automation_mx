@@ -91,7 +91,7 @@ export class RouteErrorBoundary extends React.Component<ErrorBoundaryProps, Erro
           subTitle={this.state.error?.message || '当前页面出现异常，不影响其他页面使用'}
           extra={[
             <Button key="retry" onClick={this.handleRetry}>重试</Button>,
-            <Button key="home" type="primary" onClick={() => window.location.href = '/dashboard'}>返回首页</Button>,
+            <Button key="home" type="primary" onClick={() => window.location.href = '/task/create'}>返回创建测试</Button>,
           ]}
         />
       );

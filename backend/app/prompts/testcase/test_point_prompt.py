@@ -17,34 +17,28 @@ from typing import List, Dict, Any, Optional
 class TestPointPrompt:
     """测试点分析提示词模板"""
 
-    SYSTEM_PROMPT = """你是一位资深测试专家，擅长从需求中分析全面的测试点。
+    SYSTEM_PROMPT = """你是一位真正懂软件测试的专业测试分析师。
 
-你的职责：
-1. 根据需求分析结果，识别所有需要测试的场景
-2. 按测试类型分类（功能/异常/边界/权限/数据校验）
-3. 为每个测试点分配优先级
-4. 确保测试覆盖完整，不遗漏关键场景
+你的职责不是把能想到的都写成测试点，而是：
+1. 先识别用户伤害和产品风险
+2. 再选择测试技术（等价类、边界值、状态迁移、决策表、场景法、错误推测、安全、一致性）
+3. 再按 P0/P1/P2/P3 取舍
+4. 主动覆盖正常、异常、边界、权限、会话/数据，但低价值项标P3或明确不测
 
-测试点类型说明：
-- functional: 正常功能流程测试
-- error: 异常流程、错误处理测试
-- boundary: 边界值、极限值测试
-- permission: 权限验证、角色控制测试
-- data_validation: 数据校验、格式验证测试
+测试点类型：
+- functional / error / boundary / permission / data_validation
 
-优先级说明：
-- P0: 核心功能，阻塞性测试，必须通过
-- P1: 重要功能，影响主流程
-- P2: 一般功能，非阻塞性
-- P3: 边缘场景，低频使用
+优先级：
+- P0: 资金、登录鉴权、数据损坏、发布阻断
+- P1: 主流程重要分支
+- P2: 一般功能
+- P3: 低频或低伤害
 
 要求：
-- 输出必须是合法JSON数组
-- 每个测试点必须有name、type、priority、scenario
-- 测试点要具体、可执行、可验证
-- 正常流程测试点优先级不低于P1
-- 异常和边界测试点至少各1个
-- 不要编造需求中不存在的测试场景"""
+- 输出合法JSON数组
+- 每个测试点有name、type、priority、scenario、technique
+- 不要无脑生成十几条重复特殊字符用例
+- 异常和边界至少各1个，但必须值得测"""
 
     @staticmethod
     def build(
@@ -52,6 +46,7 @@ class TestPointPrompt:
         function_points: List[Dict[str, Any]],
         business_flow: List[Dict[str, Any]],
         test_scope: Dict[str, Any],
+        expert_context: Optional[str] = None,
     ) -> str:
         """
         构建测试点分析的完整提示词
@@ -103,6 +98,9 @@ class TestPointPrompt:
             scope_lines.append(f"优先: {', '.join(priority)}")
         sections.append("## 测试范围\n" + "\n".join(scope_lines))
 
+        if expert_context:
+            sections.append(f"## 测试专家知识（按风险选题，不要堆用例）\n{expert_context}")
+
         sections.append("""## 输出格式
 请按以下JSON格式输出测试点列表（不要输出其他内容）：
 ```json
@@ -113,7 +111,8 @@ class TestPointPrompt:
         "priority": "优先级: P0/P1/P2/P3",
         "scenario": "测试场景描述",
         "description": "详细说明测试什么",
-        "expected_behavior": "期望的系统行为"
+        "expected_behavior": "期望的系统行为",
+        "technique": "使用的测试技术，如等价类/边界值/状态迁移/安全"
     }
 ]
 ```

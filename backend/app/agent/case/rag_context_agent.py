@@ -142,8 +142,23 @@ class RAGContextAgent(BaseAgent):
         project_id: str = "",
     ) -> Dict[str, Any]:
         """为L1提供上下文（聚焦于业务规则和约束）"""
-        query = f"业务规则 约束条件 {requirement_context[:500]}"
-        return self.retrieve(query_text=query, project_id=project_id, top_k=3)
+        query = f"业务规则 约束条件 测试设计 等价类 边界值 权限 {requirement_context[:500]}"
+        result = self.retrieve(query_text=query, project_id=project_id, top_k=3)
+        try:
+            from app.knowledge.testing_expert import get_testing_expert
+            expert = get_testing_expert().retrieve_for_task(requirement_context[:300], top_k=3)
+            constraints = result.setdefault("context", {}).setdefault("constraints", [])
+            for item in expert.get("cards", []):
+                constraints.append({
+                    "text": item["principle"],
+                    "score": item.get("score", 1),
+                    "source": f"测试专家/{item['title']}",
+                    "source_type": "testing_expert",
+                })
+            result["expert_prompt"] = expert.get("prompt", "")
+        except Exception:
+            pass
+        return result
 
     def retrieve_for_l2(
         self,

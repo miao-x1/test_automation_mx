@@ -63,11 +63,13 @@ class RequirementAnalysisAgent(NewBaseAgent):
 
         self.logger.info(f"[需求解析] 开始解析需求: {requirement_text[:50]}...")
 
-        # 构建提示词
+        from app.knowledge.testing_expert import expert_prompt_for
+
         user_prompt = RequirementAnalysisPrompt.build(
             requirement_text=requirement_text,
             document_context=document_context or None,
             image_description=image_description or None,
+            expert_context=expert_prompt_for(requirement_text or document_context or image_description),
         )
 
         # 调用LLM

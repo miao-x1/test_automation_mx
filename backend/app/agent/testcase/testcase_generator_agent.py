@@ -121,9 +121,14 @@ class TestCaseGeneratorAgent(NewBaseAgent):
                 self.logger.info(f"[用例生成] RAG检索完成 | 用例数: {len(rag_context.get('cases', []))}")
 
         # 构建提示词
+        from app.knowledge.testing_expert import expert_prompt_for
+
         user_prompt = TestCaseGeneratePrompt.build(
             test_point=test_point,
             rag_context=rag_context,
+            expert_context=expert_prompt_for(
+                f"{business_module} {test_point.get('name', '')} {test_point.get('scenario', '')}"
+            ),
         )
 
         # 调用LLM生成用例

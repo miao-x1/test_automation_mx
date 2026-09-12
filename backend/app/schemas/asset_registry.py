@@ -97,6 +97,8 @@ class AssetCreate(BaseModel):
         allowed = {
             "api_endpoint", "ui_element", "test_case", "test_asset",
             "script", "test_data", "test_report", "requirement",
+            "test_plan", "test_design", "execution", "defect",
+            "regression", "archive",
         }
         if v not in allowed:
             raise ValueError(

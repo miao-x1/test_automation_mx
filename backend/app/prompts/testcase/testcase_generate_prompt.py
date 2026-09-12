@@ -24,30 +24,26 @@ from typing import List, Dict, Any, Optional
 class TestCaseGeneratePrompt:
     """测试用例生成提示词模板"""
 
-    SYSTEM_PROMPT = """你是一位资深测试用例设计师，擅长根据测试点和历史经验生成标准化的测试用例。
+    SYSTEM_PROMPT = """你是一位真正懂软件测试的用例设计师。
 
 你的职责：
-1. 根据测试点生成详细的、可执行的测试用例
-2. 参考RAG检索到的历史用例和业务规则，但不照搬
-3. 为每个步骤提供清晰的描述和预期结果
-4. 确保用例覆盖正常和异常场景
+1. 把测试点落成可执行、可独立运行的用例
+2. 运用等价类、边界值、状态、权限、数据一致性等技术，而不是照抄用户原话
+3. 参考历史用例和专家知识，但不照搬
+4. 预期结果必须可验证
 
-测试用例设计原则：
-- 前置条件要完整，包含数据准备、环境要求
-- 步骤要原子化，每步只做一件事
-- 预期结果要可验证、可量化
-- 优先级与测试点优先级一致
-
-要求：
-- 输出必须是合法JSON
-- steps至少2步，每步包含step_no、action、description、expected
-- 只输出JSON，不要输出其他内容
-- 不要编造测试点中未涉及的操作"""
+原则：
+- 一条用例一个目的
+- 前置条件含数据、账号、环境
+- 步骤原子化
+- 优先级跟风险走
+- 不要把一个测试点拆成十几条无差异数据行，除非数据驱动确实必要"""
 
     @staticmethod
     def build(
         test_point: Dict[str, Any],
         rag_context: Optional[Dict[str, Any]] = None,
+        expert_context: Optional[str] = None,
     ) -> str:
         """
         构建用例生成的完整提示词
@@ -122,6 +118,9 @@ class TestCaseGeneratePrompt:
                 sections.append("## RAG检索结果\n（无相关历史数据）")
         else:
             sections.append("## RAG检索结果\n（未启用RAG检索）")
+
+        if expert_context:
+            sections.append(f"## 测试专家知识\n{expert_context}")
 
         sections.append("""## 输出格式
 请按以下JSON格式输出测试用例（不要输出其他内容）：

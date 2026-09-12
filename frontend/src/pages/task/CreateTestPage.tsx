@@ -10,6 +10,7 @@ import {
   RobotOutlined, EditOutlined,
 } from '@ant-design/icons';
 import request from '@/services/request';
+import { reuseLifecycleAssets, type LifecycleAsset } from '@/services/assetLifecycle';
 import { browserApiUrl } from '@/utils/apiUrl';
 import { assertUploadAllowed, formatUploadError } from '@/utils/uploadGuard';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
@@ -126,6 +127,7 @@ export default function CreateTestPage() {
   const classifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [projectName, setProjectName] = useState(getCurrentProjectName());
   const [recentTasks, setRecentTasks] = useState<any[]>([]);
+  const [reuseAssets, setReuseAssets] = useState<LifecycleAsset[]>([]);
   const lastProjectId = useRef(getCurrentProjectId());
 
   useEffect(() => {
@@ -173,6 +175,12 @@ export default function CreateTestPage() {
           setAiConfidence(data.confidence || 0);
           setAiReason(data.reason || '');
           setUserTestType(tType); // 用户默认跟随AI推荐
+          try {
+            const reused = await reuseLifecycleAssets(text.trim());
+            setReuseAssets(Array.isArray(reused) ? reused : []);
+          } catch {
+            setReuseAssets([]);
+          }
         } else {
           setAiTestType(null);
           setAiReason('测试类型识别失败');
@@ -542,6 +550,25 @@ export default function CreateTestPage() {
             。点「开始智能测试」后，任务会记到这个项目；换项目会换下面的任务列表。
           </Text>
         </div>
+        {reuseAssets.length > 0 && (
+          <Alert
+            style={{ marginTop: 12 }}
+            type="info"
+            showIcon
+            message="已有可复用测试资产，优先复用而不是重新生成"
+            description={
+              <div>
+                {reuseAssets.slice(0, 5).map((item) => (
+                  <div key={item.id}>
+                    <Button type="link" onClick={() => navigate(`/asset/lifecycle/${item.stage}`)}>
+                      {item.stage_name} · {item.name}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            }
+          />
+        )}
       </Card>
 
       {/* AI推荐测试类型区域 */}

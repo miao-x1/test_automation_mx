@@ -611,7 +611,17 @@ sys.exit(1 if _failed > 0 else 0)
         else:
             screenshot_desc = "（无执行截图）"
 
+        expert = ""
+        try:
+            from app.knowledge.testing_expert import expert_prompt_for
+            expert = expert_prompt_for(f"{error_preview} flaky timeout locator 失败诊断")
+        except Exception:
+            expert = ""
+        expert_block = f"\n测试专家知识:\n{expert}\n" if expert else ""
+
         return f"""你是一名资深自动化测试工程师，请分析以下Playwright脚本执行失败的原因。
+先区分：环境问题、测试数据、定位/等待脚本问题、产品缺陷。不要把超时一律报成产品Bug。
+{expert_block}
 
 执行错误信息:
 {error_preview}

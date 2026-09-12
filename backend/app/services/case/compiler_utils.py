@@ -58,16 +58,33 @@ def check_rag_available() -> bool:
 
 
 def get_default_business_rules() -> Dict[str, Any]:
-    """RAG不可用时注入默认业务规则"""
+    """RAG不可用时注入测试专家知识，而不是空泛的接口规则。"""
+    try:
+        from app.knowledge.testing_expert import get_testing_expert
+        data = get_testing_expert().retrieve("测试设计 风险 边界 权限 等价类", top_k=4, include_playbooks=False)
+        constraints = [
+            {"text": item["principle"], "score": 1.0, "source": item["title"]}
+            for item in data.get("cards", [])
+        ]
+        if constraints:
+            return {
+                "context": {"apis": [], "entities": [], "constraints": constraints, "flows": []},
+                "raw_chunks": [],
+                "total": len(constraints),
+                "fallback": True,
+                "expert": True,
+            }
+    except Exception:
+        pass
     return {
         "context": {
             "apis": [],
             "entities": [],
             "constraints": [
-                {"text": "所有接口必须校验必填参数", "score": 1.0, "source": "默认规则"},
-                {"text": "所有接口必须校验参数类型和格式", "score": 1.0, "source": "默认规则"},
-                {"text": "所有接口必须处理异常和边界情况", "score": 1.0, "source": "默认规则"},
-                {"text": "所有写操作必须校验权限", "score": 1.0, "source": "默认规则"},
+                {"text": "先按风险选题：资金、鉴权、数据损坏优先", "score": 1.0, "source": "测试专家"},
+                {"text": "覆盖正常、异常、边界、权限，但不要无脑穷举", "score": 1.0, "source": "测试专家"},
+                {"text": "接口200不等于业务成功，必要时核对数据库", "score": 1.0, "source": "测试专家"},
+                {"text": "能在API层验证的不要只堆在UI自动化", "score": 1.0, "source": "测试专家"},
             ],
             "flows": [],
         },

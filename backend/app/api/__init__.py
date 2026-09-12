@@ -23,6 +23,7 @@ from app.api.script_upload import router as script_upload_router
 from app.api.admin import router as admin_router
 from app.api.case import router as case_router
 from app.api.knowledge import router as knowledge_router
+from app.api.testing_expert import router as testing_expert_router
 from app.api.api_test import router as api_test_router
 from app.api.upload_task import router as upload_task_router
 from app.api.session_v2 import router as session_router
@@ -64,6 +65,9 @@ from app.api.asset_registry import router as asset_registry_router
 from app.api.asset_relations import router as asset_relations_router
 from app.api.asset_search import router as asset_search_router
 from app.api.asset_agents import router as asset_agents_router
+from app.api.asset_lifecycle import router as asset_lifecycle_router
+from app.api.project_explorer import router as project_explorer_router
+from app.api.project_test_task import router as project_test_task_router
 
 # ===== 新增模块: LLM Gateway (统一大模型调用网关) =====
 from app.api.llm_gateway import router as llm_gateway_router
@@ -120,6 +124,7 @@ api_router.include_router(script_upload_router, prefix="/script-upload", tags=["
 api_router.include_router(admin_router, prefix="/admin", tags=["管理模块"])
 api_router.include_router(case_router, prefix="/case", tags=["用例中心"])
 api_router.include_router(knowledge_router, prefix="/knowledge", tags=["知识服务"])
+api_router.include_router(testing_expert_router, prefix="/knowledge/testing-expert", tags=["测试专家知识"])
 api_router.include_router(api_test_router, prefix="/api-test", tags=["接口测试"])
 api_router.include_router(upload_task_router, prefix="/upload/task", tags=["上传任务系统"])
 api_router.include_router(session_router, tags=["会话管理"])
@@ -161,6 +166,9 @@ api_router.include_router(asset_registry_router, prefix="/asset-center/assets", 
 api_router.include_router(asset_relations_router, prefix="/asset-center/relations", tags=["测试资产中心-关系"])
 api_router.include_router(asset_search_router, prefix="/asset-center/search", tags=["测试资产中心-搜索"])
 api_router.include_router(asset_agents_router, prefix="/asset-center/agents", tags=["测试资产中心-Agent"])
+api_router.include_router(asset_lifecycle_router, prefix="/asset-center/lifecycle", tags=["测试资产中心-生命周期"])
+api_router.include_router(project_explorer_router, prefix="/project-explorer", tags=["项目理解"])
+api_router.include_router(project_test_task_router, prefix="/test-tasks", tags=["专业测试任务"])
 
 # ===== 新增: LLM Gateway (统一大模型调用网关) =====
 api_router.include_router(llm_gateway_router, tags=["LLM Gateway"])

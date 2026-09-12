@@ -89,11 +89,14 @@ class TestPointAgent(BaseRoutedAgent):
             )
 
             # 1. 构造 LLM 输入（使用 TestPointPrompt）
+            from app.knowledge.testing_expert import expert_prompt_for
+
             user_prompt = TestPointPrompt.build(
                 business_module=message.business_module,
                 function_points=message.function_points,
                 business_flow=message.business_flow,
                 test_scope=message.test_scope,
+                expert_context=expert_prompt_for(f"{message.business_module} {message.function_points}"),
             )
 
             # 2. 调用 LLM 生成测试点

@@ -169,5 +169,10 @@ class ResultWriter:
             }, ensure_ascii=False)
 
             db.commit()
+            try:
+                from app.services.asset_lifecycle import AssetLifecycleService
+                AssetLifecycleService().sink_execution(record)
+            except Exception:
+                pass
         finally:
             db.close()

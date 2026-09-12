@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, Table, Button, Tag, Space, message, Typography, Tooltip, Row, Col, Statistic, Progress } from 'antd';
+import { Card, Drawer, Descriptions, Table, Button, Tag, Space, message, Typography, Tooltip, Row, Col, Statistic, Progress } from 'antd';
 import { EyeOutlined, DownloadOutlined, ReloadOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import request from '@/services/request';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
@@ -31,13 +30,14 @@ function hasAIAnalysis(r: any): boolean {
 }
 
 export default function ReportListPage() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [projectName, setProjectName] = useState(getCurrentProjectName());
+  const [detail, setDetail] = useState<any | null>(null);
+  const [showReport, setShowReport] = useState(false);
 
   const fetchData = useCallback(async (p: number, ps: number) => {
     setLoading(true);
@@ -167,13 +167,18 @@ export default function ReportListPage() {
               render: (_: any, r: any) => (
                 <Space>
                   <Tooltip title="查看详情">
-                    <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => navigate(`/execution/detail/${r.id}`)}>详情</Button>
+                    <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => { setDetail(r); setShowReport(false); }}>详情</Button>
                   </Tooltip>
                   <Tooltip title="查看HTML报告">
-                    <Button size="small" icon={<FileTextOutlined />} onClick={() => window.open(`/api/executions/${r.id}/report?format=html`, '_blank')} />
+                    <Button size="small" icon={<FileTextOutlined />} onClick={() => { setDetail(r); setShowReport(true); }} />
                   </Tooltip>
                   <Tooltip title="下载Excel">
-                    <Button size="small" icon={<DownloadOutlined />} onClick={() => window.open(`/api/executions/${r.id}/report?format=excel`, '_blank')} />
+                    <Button size="small" icon={<DownloadOutlined />} onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = `/api/executions/${r.id}/report?format=excel`;
+                      link.download = `execution-${r.id}.xlsx`;
+                      link.click();
+                    }} />
                   </Tooltip>
                 </Space>
               ),
@@ -181,6 +186,40 @@ export default function ReportListPage() {
           ]}
         />
       </Card>
+      <Drawer
+        title={detail ? `报告 #${detail.id}` : '测试报告'}
+        open={!!detail}
+        onClose={() => { setDetail(null); setShowReport(false); }}
+        width={720}
+      >
+        {detail ? (
+          showReport ? (
+            <iframe
+              title={`测试报告 ${detail.id}`}
+              src={`/api/executions/${detail.id}/report?format=html`}
+              style={{ width: '100%', height: '70vh', border: '1px solid #d0d7de' }}
+            />
+          ) : (
+            <Descriptions column={1} bordered size="small">
+              <Descriptions.Item label="任务">{detail.task_name || detail.requirement || detail.task_id || '-'}</Descriptions.Item>
+              <Descriptions.Item label="结果">{detail.status || '-'}</Descriptions.Item>
+              <Descriptions.Item label="类型">{detail.execution_type || '-'}</Descriptions.Item>
+              <Descriptions.Item label="通过">{detail.success_count ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="失败">{detail.failed_count ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="耗时">{formatDuration(detail.duration)}</Descriptions.Item>
+              <Descriptions.Item label="执行时间">{detail.start_time || '-'}</Descriptions.Item>
+              <Descriptions.Item label="AI 分析">{hasAIAnalysis(detail) ? '有' : '无'}</Descriptions.Item>
+              {detail.analysis_result ? (
+                <Descriptions.Item label="分析结果">
+                  <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+                    {typeof detail.analysis_result === 'string' ? detail.analysis_result : JSON.stringify(detail.analysis_result, null, 2)}
+                  </pre>
+                </Descriptions.Item>
+              ) : null}
+            </Descriptions>
+          )
+        ) : null}
+      </Drawer>
     </div>
   );
 }

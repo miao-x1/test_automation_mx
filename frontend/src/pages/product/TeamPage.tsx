@@ -120,20 +120,13 @@ export default function TeamPage() {
               type="button"
               className="product-tile"
               onClick={() => {
-                setCurrentProjectId(project.id);
-                navigate('/task/create');
+                setCurrentProjectId(project.id, project.name);
+                navigate('/workbench');
               }}
             >
               <strong>{project.name}</strong>
               <span>{project.member_count || 0} 名成员</span>
               <em>{project.status || 'IDLE'}</em>
-              <span
-                className="product-note"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/workspace/project/${project.id}`);
-                }}
-              >项目成员</span>
             </button>
           ))}
         </div>
@@ -274,8 +267,8 @@ export default function TeamPage() {
           setProjectOpen(false);
           projectForm.resetFields();
           if (created?.id) {
-            setCurrentProjectId(created.id);
-            navigate('/task/create');
+            setCurrentProjectId(created.id, created.name);
+            navigate('/workbench');
           } else {
             load();
           }

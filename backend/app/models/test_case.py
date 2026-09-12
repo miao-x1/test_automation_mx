@@ -53,6 +53,18 @@ class TestCase(OwnedModel):
         String(200), nullable=False,
         comment="用例名称"
     )
+    case_code = Column(
+        String(40), nullable=True, index=True,
+        comment="可读用例ID，如 TC-LOGIN-001"
+    )
+    module = Column(
+        String(100), nullable=True,
+        comment="所属模块"
+    )
+    scenario = Column(
+        String(500), nullable=True,
+        comment="测试场景"
+    )
     precondition = Column(
         Text, nullable=True,
         comment="前置条件"
@@ -61,9 +73,21 @@ class TestCase(OwnedModel):
         Text, nullable=True,
         comment="测试步骤(JSON数组)"
     )
+    test_data = Column(
+        Text, nullable=True,
+        comment="测试数据"
+    )
     expected_result = Column(
         Text, nullable=True,
         comment="预期结果"
+    )
+    tags = Column(
+        String(500), nullable=True,
+        comment="标签，逗号分隔"
+    )
+    test_task_id = Column(
+        Integer, nullable=True, index=True,
+        comment="所属专业测试任务"
     )
 
     # 分类

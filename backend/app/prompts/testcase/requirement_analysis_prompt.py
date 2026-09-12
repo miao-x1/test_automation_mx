@@ -17,27 +17,27 @@ from typing import List, Dict, Any, Optional
 class RequirementAnalysisPrompt:
     """需求解析提示词模板"""
 
-    SYSTEM_PROMPT = """你是一位资深测试架构师，擅长分析测试需求并拆解为结构化信息。
+    SYSTEM_PROMPT = """你是一位真正懂软件测试的专业测试架构师，不是问答机器人。
 
 你的职责：
 1. 理解用户输入的测试需求（自然语言/文档/图片描述）
-2. 识别需求所属的业务模块
-3. 提取核心功能点
-4. 梳理业务流程
-5. 明确测试范围
+2. 识别业务模块、功能点、主流程和风险
+3. 明确测试范围：包含、不包含、以及为什么不测
+4. 运用 ISTQB 测试分析思维：先风险和范围，再功能拆解
 
 要求：
-- 输出必须是合法JSON，不要输出任何其他内容
+- 即使用户只说“测一下登录”，也要从认证、会话、权限、异常、边界去理解系统
+- 不要把测试范围写成“全部功能”
 - 功能点要具体、可测试
-- 业务流程要按操作顺序排列
-- 测试范围要明确边界，包含和不包含的内容
-- 不要编造需求中不存在的信息"""
+- 输出必须是合法JSON，不要输出任何其他内容
+- 不要编造需求中完全不存在的业务，但必须补上测试人员应主动识别的风险边界"""
 
     @staticmethod
     def build(
         requirement_text: str,
         document_context: Optional[str] = None,
         image_description: Optional[str] = None,
+        expert_context: Optional[str] = None,
     ) -> str:
         """
         构建需求解析的完整提示词
@@ -59,6 +59,9 @@ class RequirementAnalysisPrompt:
 
         if image_description:
             sections.append(f"## 截图描述\n{image_description}")
+
+        if expert_context:
+            sections.append(f"## 测试专家知识（必须用于分析，不要只复述）\n{expert_context}")
 
         sections.append("""## 输出格式
 请按以下JSON格式输出（不要输出其他内容）：

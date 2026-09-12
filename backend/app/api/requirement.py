@@ -151,6 +151,12 @@ def _persist_requirement_result(task_id: int, event: dict) -> None:
 
         db.commit()
         log.info(f"需求任务结果已持久化 | task_id={task_id} | status={task.status}")
+        if evt_name == "flow_success":
+            try:
+                from app.services.asset_lifecycle import AssetLifecycleService
+                AssetLifecycleService().sink_requirement(task)
+            except Exception as sink_exc:
+                log.warning(f"需求产物沉淀到资产中心失败 | task_id={task_id} | {sink_exc}")
     except Exception as e:
         db.rollback()
         log.warning(f"持久化需求分析结果异常 | task_id={task_id} | {e}")

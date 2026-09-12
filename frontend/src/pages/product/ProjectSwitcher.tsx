@@ -13,7 +13,11 @@ function isProjectWorkPage(pathname: string): boolean {
     pathname.startsWith('/execution') ||
     pathname.startsWith('/report') ||
     pathname.startsWith('/asset') ||
-    pathname.startsWith('/performance')
+    pathname.startsWith('/performance') ||
+    pathname.startsWith('/understand') ||
+    pathname.startsWith('/design') ||
+    pathname.startsWith('/execute') ||
+    pathname.startsWith('/knowledge')
   );
 }
 
@@ -76,7 +80,7 @@ export default function ProjectSwitcher() {
             return;
           }
           if (!isProjectWorkPage(location.pathname)) {
-            navigate('/task/create');
+            navigate('/workspace');
           }
         }}
       />

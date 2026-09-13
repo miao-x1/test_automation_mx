@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Button, Drawer, Dropdown, Input, Modal, Popover, Upload, message } from 'antd';
+import { Button, Drawer, Dropdown, Input, Modal, Popover, Space, Upload, message } from 'antd';
+import { zipPickedFolder } from '@/utils/projectZip';
 import { getCurrentProjectId, PROJECT_CHANGED } from '@/pages/product/projectStore';
 import {
   analyzeProject,
@@ -39,6 +40,7 @@ export default function UnderstandLayout() {
   const [repoUrl, setRepoUrl] = useState('');
   const [query, setQuery] = useState('');
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
   const status = data?.imported ? (data.status || 'partial') : 'empty';
 
@@ -179,24 +181,56 @@ export default function UnderstandLayout() {
               setLoading(false);
             }
           }}>导入 Git 仓库</Button>
-          <Upload accept=".zip" maxCount={1} showUploadList={false} beforeUpload={async (file) => {
-            const projectId = getCurrentProjectId();
-            if (!projectId) return false;
-            setLoading(true);
-            try {
-              await importProjectArchive(projectId, file);
-              message.success('已上传并完成分析');
-              setImportOpen(false);
-              await reload();
-            } catch (err: any) {
-              message.error(apiError(err, '上传失败'));
-            } finally {
-              setLoading(false);
-            }
-            return false;
-          }}>
-            <Button>上传本地 ZIP</Button>
-          </Upload>
+          <Space>
+            <Button onClick={() => folderRef.current?.click()}>上传本地文件夹</Button>
+            <Upload accept=".zip" maxCount={1} showUploadList={false} beforeUpload={async (file) => {
+              const projectId = getCurrentProjectId();
+              if (!projectId) return false;
+              setLoading(true);
+              try {
+                await importProjectArchive(projectId, file);
+                message.success('已上传并完成分析');
+                setImportOpen(false);
+                await reload();
+              } catch (err: any) {
+                message.error(apiError(err, '上传失败'));
+              } finally {
+                setLoading(false);
+              }
+              return false;
+            }}>
+              <Button>上传 ZIP</Button>
+            </Upload>
+          </Space>
+          <input
+            ref={(el) => {
+              folderRef.current = el;
+              if (el) {
+                el.setAttribute('webkitdirectory', '');
+                el.setAttribute('directory', '');
+              }
+            }}
+            type="file"
+            multiple
+            hidden
+            onChange={async (event) => {
+              const files = event.target.files;
+              event.target.value = '';
+              const projectId = getCurrentProjectId();
+              if (!files?.length || !projectId) return;
+              setLoading(true);
+              try {
+                await importProjectArchive(projectId, await zipPickedFolder(files));
+                message.success('已上传并完成分析');
+                setImportOpen(false);
+                await reload();
+              } catch (err: any) {
+                message.error(apiError(err, '上传失败'));
+              } finally {
+                setLoading(false);
+              }
+            }}
+          />
         </div>
       </Modal>
 

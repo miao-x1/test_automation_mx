@@ -110,8 +110,7 @@ class ProjectMemoryService:
                 (ProjectMemoryItem.title.like(like)) | (ProjectMemoryItem.content.like(like)),
             ).order_by(ProjectMemoryItem.updated_at.desc()).limit(limit * 3).all()
             preferred = [row for row in rows if row.kind in {"conclusion", "focus", "understanding", "confirmed", "test_design", "test_execution"}]
-            rest = [row for row in rows if row not in preferred]
-            return [self._row(row) for row in (preferred + rest)[:limit]]
+            return [self._row(row) for row in preferred[:limit]]
         finally:
             db.close()
 

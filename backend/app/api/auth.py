@@ -75,8 +75,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(..., description="用户名")
     password: str = Field(..., description="密码")
-    captcha_id: str = Field(..., description="图形验证码ID")
-    captcha_code: str = Field(..., description="图形验证码")
+    captcha_id: str = Field(default="", description="图形验证码ID")
+    captcha_code: str = Field(default="", description="图形验证码")
 
 
 class SendSmsRequest(BaseModel):
@@ -117,7 +117,7 @@ async def public_config():
     return Response(code=200, message="ok", data={
         "allow_register": settings.register_enabled,
         "register_require_approval": settings.REGISTER_REQUIRE_APPROVAL,
-        "captcha_required": settings.CAPTCHA_REQUIRED,
+        "captcha_required": False,
         "sms_provider": (settings.SMS_PROVIDER or "console").lower(),
         "sms_echo": settings.sms_echo_enabled,
     })
@@ -241,6 +241,33 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 # ==================== 登录 ====================
 
+def _login_response(user: User, message: str = "登录成功"):
+    access_token = create_access_token(data={"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    log.info(f"用户登录成功 | username={user.username}")
+    response = JSONResponse(content=Response(code=200, message=message, data={
+        "user": _user_to_dict(user),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }).model_dump())
+    set_auth_cookies(response, access_token, refresh_token)
+    return response
+
+
+@router.post("/quick-enter", summary="跳过验证码直接进入")
+async def quick_enter(db: Session = Depends(get_db)):
+    username = (settings.ADMIN_USERNAME or "").strip()
+    user = db.query(User).filter(User.username == username).first() if username else None
+    if not user:
+        user = db.query(User).filter(User.role == UserRole.ADMIN, User.is_active.is_(True)).order_by(User.id.asc()).first()
+    if not user:
+        user = db.query(User).filter(User.is_active.is_(True)).order_by(User.id.asc()).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="没有可登录的账号")
+    return _login_response(user)
+
+
 @router.post("/login", summary="用户登录")
 async def login(req: LoginRequest, db: Session = Depends(get_db)):
     """
@@ -249,8 +276,6 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
     - 验证用户名和密码
     - 返回 access_token + refresh_token
     """
-    _require_captcha(req.captcha_id, req.captcha_code)
-
     user = db.query(User).filter(User.username == req.username).first()
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -261,20 +286,7 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    # 生成 Token
-    access_token = create_access_token(data={"sub": str(user.id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
-
-    log.info(f"用户登录成功 | username={user.username}")
-
-    response = JSONResponse(content=Response(code=200, message="登录成功", data={
-        "user": _user_to_dict(user),
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    }).model_dump())
-    set_auth_cookies(response, access_token, refresh_token)
-    return response
+    return _login_response(user)
 
 
 @router.post("/password/reset", summary="短信验证后重置密码")

@@ -104,6 +104,7 @@ export async function askProjectAgent(
   workspace: string,
   confirm = false,
   testTaskId?: number,
+  extra?: { signal?: AbortSignal },
 ) {
   return dataOf(await request.post('/project-explorer/agent/ask', {
     project_id: projectId,
@@ -111,5 +112,5 @@ export async function askProjectAgent(
     workspace,
     confirm,
     test_task_id: testTaskId,
-  })) as AgentReply;
+  }, extra?.signal ? { signal: extra.signal, timeout: 90000 } : { timeout: 90000 })) as AgentReply;
 }

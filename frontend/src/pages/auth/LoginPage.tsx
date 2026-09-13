@@ -4,54 +4,62 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, message } from 'antd';
-import { getPublicAuthConfig, login, type CaptchaPayload, type PublicAuthConfig } from '../../services/auth';
-import AuthCaptcha, { loadCaptcha } from './AuthCaptcha';
+import { getPublicAuthConfig, login, saveUser, type PublicAuthConfig } from '../../services/auth';
+import request from '../../services/request';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [cfg, setCfg] = useState<PublicAuthConfig | null>(null);
-  const [captcha, setCaptcha] = useState<CaptchaPayload | null>(null);
   const [form] = Form.useForm();
 
-  const refreshCaptcha = async () => {
-    try {
-      const next = await loadCaptcha();
-      setCaptcha(next);
-      form.setFieldValue('captcha_code', '');
-    } catch {
-      message.error('验证码加载失败');
-    }
-  };
-
   useEffect(() => {
-    getPublicAuthConfig()
-      .then(setCfg)
-      .catch(() => setCfg({
-        allow_register: false,
-        register_require_approval: false,
-        captcha_required: true,
-        sms_provider: 'console',
-        sms_echo: false,
-      }));
-    refreshCaptcha();
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const next = await getPublicAuthConfig();
+        if (!cancelled) setCfg(next);
+      } catch {
+        if (!cancelled) setCfg({
+          allow_register: false,
+          register_require_approval: false,
+          captcha_required: false,
+          sms_provider: 'console',
+          sms_echo: false,
+        });
+      }
+      try {
+        setLoading(true);
+        const res: any = await request.post('/auth/quick-enter');
+        if (cancelled) return;
+        if (res?.code === 200 && res?.data?.user) {
+          saveUser(res.data.user);
+          navigate('/', { replace: true });
+          return;
+        }
+      } catch {
+        // 快速进入失败时再走账号密码
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [navigate]);
 
-  const onFinish = async (values: { username: string; password: string; captcha_code: string }) => {
+  const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
       await login({
         username: values.username,
         password: values.password,
-        captcha_id: captcha?.captcha_id || '',
-        captcha_code: values.captcha_code,
+        captcha_id: '',
+        captcha_code: '',
       });
       message.success('登录成功');
       navigate('/', { replace: true });
     } catch (err: any) {
       const detail = err?.response?.data?.detail || err?.response?.data?.message || err.message || '登录失败，请检查用户名和密码';
       message.error(detail);
-      refreshCaptcha();
     } finally {
       setLoading(false);
     }
@@ -70,9 +78,6 @@ export default function LoginPage() {
           </Form.Item>
           <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
             <Input.Password placeholder="密码" />
-          </Form.Item>
-          <Form.Item name="captcha_code" label="验证码" rules={[{ required: true, message: '请输入图形验证码' }]}>
-            <AuthCaptcha captcha={captcha} onRefresh={refreshCaptcha} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
             <Button type="primary" htmlType="submit" loading={loading} block>

@@ -6,9 +6,11 @@ from typing import Any, Optional
 
 from app.db.database import SessionLocal
 from app.models.execution_record import ExecutionRecord
+from app.models.team import Project
 from app.services.asset_lifecycle import AssetLifecycleService
 from app.services.project_indexer import ProjectIndexer
 from app.services.project_memory import ProjectMemoryService
+from app.services.project_understanding import ProjectUnderstandingService
 from app.services.testing_brain import (
     INTENT_PATHS,
     TestingBrainService,
@@ -50,6 +52,7 @@ class ProjectAgentService:
         self.memory = ProjectMemoryService()
         self.assets = AssetLifecycleService()
         self.brain = TestingBrainService()
+        self.understanding = ProjectUnderstandingService()
         self.tasks = None
 
     def _task_service(self):
@@ -80,35 +83,32 @@ class ProjectAgentService:
             test_task_id=test_task_id, workspace=workspace,
         )
         unique = self._unique_hits(brain.get("locations") or [], keywords, user_id, project_id, question)
-        memory_hits = brain.get("memory") or []
+        memory_hits = [item for item in (brain.get("memory") or []) if item.get("kind") not in {"question", "message"}]
         actions: list[dict[str, Any]] = []
 
-        if intent == "answer":
-            knowledge = self.brain.answer_knowledge(question)
-            answer = (
-                "已选择最短路径：直接回答。没有进入完整测试流程。\n\n"
-                + (knowledge.get("answer") or "")
-            )
-            actions.append({"type": "answer", "used_cards": knowledge.get("used_cards") or []})
-        elif intent == "analyze_requirement":
+        if intent == "analyze_requirement":
             actions.extend(self._analyze(user_id, project_id, question, test_task_id))
-            answer = self._compose(question, workspace, unique, memory_hits, actions, intent)
+            answer = self._work_answer(actions)
         elif intent in {
             "generate_cases", "supplement_exception", "supplement_boundary",
             "check_coverage", "optimize_cases", "to_automation", "execute",
             "analyze_failure", "create_bug", "generate_report", "create_task", "full_test",
         }:
             actions.extend(self._route_work(user_id, project_id, question, intent, unique, test_task_id))
-            answer = self._compose(question, workspace, unique, memory_hits, actions, intent)
+            answer = self._work_answer(actions)
         elif workspace == "design" and any(token in question for token in ("测试", "用例", "场景", "设计")) and intent == "locate":
             actions.extend(self._design(user_id, project_id, question, unique))
-            answer = self._compose(question, workspace, unique, memory_hits, actions, "analyze_requirement")
+            answer = self._work_answer(actions)
             intent = "analyze_requirement"
-        elif workspace == "execute":
+        elif workspace == "execute" and intent in {"execute", "analyze_failure"}:
             actions.extend(self._execute(user_id, project_id, question))
-            answer = self._compose(question, workspace, unique, memory_hits, actions, intent)
+            answer = self._work_answer(actions)
         else:
-            answer = self._compose(question, workspace, unique, memory_hits, actions, intent)
+            answer = self._answer_current_project(user_id, project_id, question, unique)
+            if intent == "locate" and any(token in question for token in ("几个", "多少", "数量", "有几", "什么是", "什么叫", "解释一下", "做什么", "是什么项目")):
+                intent = "answer"
+            elif intent not in {"locate", "answer"}:
+                intent = "answer"
 
         self.memory.remember(
             user_id, project_id, kind="question", title=question[:80],
@@ -123,10 +123,10 @@ class ProjectAgentService:
         self.memory.remember(
             user_id, project_id, kind="message", title=f"回答：{question[:40]}",
             content=answer, workspace=workspace, role="assistant",
-            extra={"hits": [{"path": i["path"], "name": i["name"], "line_start": i.get("line_start")} for i in unique[:8]], "intent": intent},
+            extra={"intent": intent},
             test_task_id=test_task_id,
         )
-        if unique:
+        if unique and intent == "locate":
             top = unique[0]
             self.memory.remember(
                 user_id, project_id, kind="conclusion",
@@ -161,6 +161,134 @@ class ProjectAgentService:
             "actions": actions,
         }
 
+    def _project_name(self, project_id: int, snap: Optional[dict[str, Any]] = None) -> str:
+        name = ((snap or {}).get("project") or {}).get("name")
+        if name:
+            return name
+        db = SessionLocal()
+        try:
+            row = db.query(Project).filter(Project.id == project_id).first()
+            return (row.name if row else "") or "当前项目"
+        finally:
+            db.close()
+
+    def _knowledge_answer(self, question: str) -> Optional[str]:
+        q = question or ""
+        if not any(token in q for token in ("什么是", "什么叫", "解释一下", "怎么理解", "定义")):
+            return None
+        if any(token in q for token in ("这个项目", "当前项目", "本项目")):
+            return None
+        try:
+            cards = (self.brain.expert.retrieve(q, top_k=1, include_playbooks=False).get("cards") or [])
+        except Exception:
+            return None
+        if not cards:
+            return None
+        primary = cards[0]
+        title = (primary.get("title") or "").strip()
+        principle = (primary.get("principle") or "").strip()
+        if not principle:
+            return None
+        return f"{title}：{principle}" if title else principle
+
+    def _answer_current_project(
+        self,
+        user_id: int,
+        project_id: int,
+        question: str,
+        hits: list[dict[str, Any]],
+    ) -> str:
+        knowledge = self._knowledge_answer(question)
+        if knowledge:
+            return knowledge
+        try:
+            snap = self.understanding.snapshot(user_id, project_id)
+        except Exception:
+            snap = {"imported": False}
+        name = self._project_name(project_id, snap)
+        q = question
+        scale = snap.get("scale") or {}
+        imported = bool(snap.get("imported"))
+
+        def count_of(kind: str, scale_key: str, items_key: str) -> int:
+            if imported and scale.get(scale_key) is not None:
+                return int(scale.get(scale_key) or 0)
+            rows = self.indexer.query_index(user_id, project_id, kind=kind, limit=200)
+            if rows:
+                return len(rows)
+            return len(snap.get(items_key) or [])
+
+        if any(token in q for token in ("几个", "多少", "数量", "有几")) and any(token in q.lower() for token in ("api", "接口", "endpoint")):
+            if not imported and count_of("api", "apis", "apis") == 0:
+                return f"当前项目「{name}」还没有导入或分析代码，统计不到接口。"
+            return f"当前项目「{name}」有 {count_of('api', 'apis', 'apis')} 个接口。"
+        if any(token in q for token in ("几个", "多少", "数量", "有几")) and any(token in q for token in ("页面", "page")):
+            if not imported and count_of("page", "pages", "pages") == 0:
+                return f"当前项目「{name}」还没有导入或分析代码，统计不到页面。"
+            return f"当前项目「{name}」有 {count_of('page', 'pages', 'pages')} 个页面。"
+        if any(token in q for token in ("几个", "多少", "数量", "有几")) and any(token in q for token in ("功能", "模块")):
+            key = "features" if "功能" in q else "modules"
+            kind = "feature" if key == "features" else "module"
+            n = count_of(kind, key, key)
+            label = "个功能" if key == "features" else "个模块"
+            return f"当前项目「{name}」有 {n} {label}。"
+        if any(token in q for token in ("哪些接口", "有哪些 api", "有哪些API", "接口列表")):
+            apis = snap.get("apis") or self.indexer.query_index(user_id, project_id, kind="api", limit=40)
+            names = [item.get("name") for item in apis if item.get("name")]
+            if not names:
+                return f"当前项目「{name}」还没有解析出接口。"
+            return "、".join(names[:20]) + ("。" if len(names) <= 20 else f" 等，共 {len(names)} 个。")
+        if any(token in q for token in ("做什么", "是什么项目", "介绍一下", "项目介绍", "概述")):
+            project = snap.get("project") or {}
+            desc = project.get("description") or ""
+            stack = "、".join(project.get("stack") or [])
+            if not imported:
+                return f"当前项目是「{name}」，还没有导入代码，我只能看到项目名称。"
+            parts = [f"当前项目是「{name}」。"]
+            if desc:
+                desc = desc.strip()
+                if desc and not desc.endswith(("。", "！", "？", ".", "!", "?")):
+                    desc += "。"
+                parts.append(desc)
+            if stack:
+                parts.append(f"技术栈：{stack}。")
+            return "".join(parts)
+        if hits and any(token in q for token in ("在哪", "哪个文件", "定位", "找一下", "哪里")):
+            top = hits[0]
+            return f"{top.get('name')} 在 {top.get('path')}:{top.get('line_start') or 1}。"
+        if hits:
+            top = hits[0]
+            return f"在当前项目「{name}」里，和这个问题最相关的是 {top.get('name')}（{top.get('path')}）。"
+        if not imported:
+            return f"当前项目「{name}」还没有导入代码，我回答不了这个问题。"
+        return f"当前项目「{name}」里没有找到和这个问题直接对应的结果。"
+
+    def _work_answer(self, actions: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for action in actions:
+            if action.get("type") == "create_test_design":
+                asset = action.get("asset") or {}
+                lines.append(f"已写入测试设计：{asset.get('name') or '测试设计'}。")
+            if action.get("type") == "analyze_requirement":
+                lines.append("需求已分析并写入当前项目。")
+            if action.get("type") in {"generate_cases", "generated_cases", "supplement_exception", "supplement_boundary"}:
+                lines.append(f"已生成 {len(action.get('cases') or [])} 条用例。")
+            if action.get("type") == "full_test":
+                lines.append("已按当前项目完成分析、生成用例和覆盖检查。")
+            if action.get("type") == "list_executions":
+                items = action.get("items") or []
+                lines.append(f"当前项目最近有 {len(items)} 条执行记录。" if items else "当前项目还没有执行记录。")
+            if action.get("type") == "check_coverage":
+                cov = action.get("coverage") or {}
+                lines.append(f"覆盖率 {cov.get('score')}%。")
+            if action.get("type") == "to_automation":
+                lines.append("已转成自动化草稿。")
+            if action.get("type") == "create_bug":
+                lines.append("缺陷已写入当前项目。")
+            if action.get("type") == "generate_report":
+                lines.append("报告已写入当前测试任务。")
+        return "\n".join(lines) or "已按当前项目处理。"
+
     def _unique_hits(
         self,
         locations: list[dict[str, Any]],
@@ -184,6 +312,34 @@ class ProjectAgentService:
                 continue
             seen.add(key)
             unique.append(item)
+        kind_score = {
+            "page": 8, "api": 8, "function": 7, "feature": 7,
+            "component": 6, "file": 4, "module": 3, "element": 0,
+        }
+        q = (question or "").lower()
+
+        def score(item: dict[str, Any]) -> int:
+            name = item.get("name") or ""
+            path = item.get("path") or ""
+            points = kind_score.get(item.get("kind") or "", 2)
+            if "(" in name or "e.target" in name or len(name) > 48:
+                points -= 8
+            blob = f"{name} {path}".lower()
+            for index, word in enumerate(keywords or []):
+                key = (word or "").lower()
+                if not key:
+                    continue
+                if name.lower() == key:
+                    points += 20
+                elif key in blob:
+                    points += max(6, 12 - index)
+            if any(token in q for token in ("页面", "page")) and item.get("kind") == "page":
+                points += 6
+            if any(token in q for token in ("接口", "api")) and item.get("kind") == "api":
+                points += 6
+            return points
+
+        unique.sort(key=score, reverse=True)
         return unique
 
     def _route_work(

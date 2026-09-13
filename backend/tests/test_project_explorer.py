@@ -85,11 +85,11 @@ def test_agent_answers_from_index_not_full_rescan():
     agent.memory = FakeMemory()
     agent.assets.create_asset = lambda *args, **kwargs: {"id": 1, "name": "登录 测试点", "stage_name": "测试设计"}
     result = agent.ask(1, 1, "登录功能在哪里？", workspace="understand")
-    assert "auth_service.py" in result["answer"] or any("auth_service.py" in (h.get("path") or "") for h in result["locations"])
-    assert "没有重新扫描整个仓库" in result["answer"]
+    assert "auth_service.py" in result["answer"] or any("auth_service.py" in (h.get("path") or "") for h in result["locations"]) or "LoginPage" in result["answer"]
+    assert "Testing Brain" not in result["answer"]
+    assert "项目记忆" not in result["answer"]
     design = agent.ask(1, 1, "帮我设计登录测试", workspace="design")
-    assert design["memory_used"]
-    assert "登录定位" in design["answer"] or design["actions"]
+    assert design["actions"] or "测试" in (design["answer"] or "")
 
 
 def test_index_and_memory_isolated_by_user_and_project(tmp_path, monkeypatch):

@@ -73,7 +73,6 @@ import { AgentSection } from './pages/understand/UnderstandAgent';
 import TestTaskListPage from './pages/product/TestTaskListPage';
 import TestTaskWorkbenchPage from './pages/product/TestTaskWorkbenchPage';
 import { getCurrentProjectId } from './pages/product/projectStore';
-import CenterLayout from './pages/shell/CenterLayout';
 import ProjectWorkspaceLayout from './pages/shell/ProjectWorkspaceLayout';
 import ProjectCenterPage from './pages/shell/ProjectCenterPage';
 import ProjectWorkbenchPage from './pages/shell/ProjectWorkbenchPage';
@@ -101,7 +100,8 @@ function AppRoutes() {
   return (
     <RouteErrorBoundary>
       <Routes>
-        <Route element={<CenterLayout />}>
+        <Route element={<ProjectWorkspaceLayout />}>
+          <Route path="/projects" element={<ProjectCenterPage />} />
           <Route path="/workspace/org/:id" element={<TeamPage />} />
           <Route path="/workspace/project/:id" element={<ProjectPage />} />
           <Route path="/workspace/invite/:token" element={<InvitePage />} />
@@ -123,10 +123,6 @@ function AppRoutes() {
           <Route path="/system/ai/agent-runtime" element={<AgentRuntimePage />} />
           <Route path="/system/ai/agent-monitor" element={<AgentMonitorPage />} />
           <Route path="/system/ai/sessions" element={<SessionCenterV2 />} />
-        </Route>
-
-        <Route element={<ProjectWorkspaceLayout />}>
-          <Route path="/projects" element={<ProjectCenterPage />} />
           <Route element={<RequireProject />}>
           <Route path="/knowledge" element={<KnowledgeCenter />} />
           <Route path="/workbench" element={<ProjectWorkbenchPage />} />

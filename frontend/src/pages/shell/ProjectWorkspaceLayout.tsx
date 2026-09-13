@@ -6,7 +6,7 @@ import { fetchProjectUnderstanding } from '@/services/projectExplorer';
 import { PROJECT_NAV, appNavOfPath, navGroupOfPath } from './nav';
 import { HeaderTools, WorkspaceTopBar } from './ProjectHeaderBar';
 import ProjectCreateDrawer from './ProjectCreateDrawer';
-import ProjectAgentDock from './ProjectAgentDock';
+import ProjectAgentDock, { PROJECT_CREATE_OPEN } from './ProjectAgentDock';
 import './shell.css';
 
 export default function ProjectWorkspaceLayout() {
@@ -24,6 +24,12 @@ export default function ProjectWorkspaceLayout() {
     if (appNavOfPath(location.pathname) === 'workspace') setWorkspaceOpen(true);
     else setWorkspaceOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const openCreate = () => setCreateOpen(true);
+    window.addEventListener(PROJECT_CREATE_OPEN, openCreate);
+    return () => window.removeEventListener(PROJECT_CREATE_OPEN, openCreate);
+  }, []);
 
   useEffect(() => {
     const sync = () => setProjectName(getCurrentProjectName() || '当前项目');
@@ -105,7 +111,7 @@ export default function ProjectWorkspaceLayout() {
               onCreate={() => setCreateOpen(true)}
             />
           ) : null}
-          <div className="pw-main-body">
+          <div className={`pw-main-body ${first === 'account' ? 'pw-main-pad' : ''}`}>
             <Outlet />
           </div>
         </main>

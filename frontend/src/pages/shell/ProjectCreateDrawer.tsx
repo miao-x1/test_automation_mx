@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Button, Drawer, Form, Input, Radio, Select, Upload, message } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { Button, Drawer, Form, Input, Radio, Select, Space, Upload, message } from 'antd';
 import { createProject, fetchWorkspace, type Organization, type Project } from '@/services/workspace';
 import { apiError, importGitRepo, importProjectArchive, importSampleRepo } from '@/services/projectExplorer';
 import { setCurrentProjectId } from '@/pages/product/projectStore';
+import { pickedFolderName, zipPickedFolder } from '@/utils/projectZip';
 
 type Mode = 'create' | 'import';
 
@@ -23,6 +24,7 @@ export default function ProjectCreateDrawer({
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
   const source = Form.useWatch('source', form);
+  const folderRef = useRef<HTMLInputElement>(null);
   const intoExisting = mode === 'import' && !!project;
   const title = intoExisting ? `导入到「${project.name}」` : mode === 'import' ? '导入项目' : '新建项目';
 
@@ -65,7 +67,7 @@ export default function ProjectCreateDrawer({
         message.success('已从 Git 仓库导入');
       } else if (source === 'local' && file) {
         await importProjectArchive(next.id, file);
-        message.success('已从本地 ZIP 导入');
+        message.success('已从本地项目导入');
       } else {
         message.success(mode === 'import' ? '项目已准备好，请选择导入方式' : '项目已创建');
         if (mode === 'import' && source !== 'blank') {
@@ -103,7 +105,7 @@ export default function ProjectCreateDrawer({
             {mode === 'create' ? <Radio value="blank">空白项目</Radio> : null}
             <Radio value="github">GitHub</Radio>
             <Radio value="git">GitLab / Gitee / 其他 Git</Radio>
-            <Radio value="local">本地 ZIP</Radio>
+            <Radio value="local">本地文件夹 / ZIP</Radio>
             <Radio value="sample">示例项目</Radio>
           </Radio.Group>
         </Form.Item>
@@ -113,17 +115,48 @@ export default function ProjectCreateDrawer({
           </Form.Item>
         ) : null}
         {source === 'local' ? (
-          <Upload
-            accept=".zip"
-            maxCount={1}
-            showUploadList={false}
-            beforeUpload={(file) => {
-              void finish(file);
-              return false;
-            }}
-          >
-            <Button>选择 ZIP 文件</Button>
-          </Upload>
+          <div>
+            <p style={{ color: 'var(--text-muted)', margin: '0 0 8px' }}>可以选择本地文件夹，也可以继续上传 ZIP。会自动跳过 node_modules、.git 等目录。</p>
+            <Space>
+              <Button onClick={() => folderRef.current?.click()}>选择文件夹</Button>
+              <Upload
+                accept=".zip"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  void finish(file);
+                  return false;
+                }}
+              >
+                <Button>选择 ZIP</Button>
+              </Upload>
+            </Space>
+            <input
+              ref={(el) => {
+                folderRef.current = el;
+                if (el) {
+                  el.setAttribute('webkitdirectory', '');
+                  el.setAttribute('directory', '');
+                }
+              }}
+              type="file"
+              multiple
+              hidden
+              onChange={(event) => {
+                const files = event.target.files;
+                event.target.value = '';
+                if (!files?.length) return;
+                if (!intoExisting && !form.getFieldValue('name')) {
+                  form.setFieldValue('name', pickedFolderName(files));
+                }
+                setLoading(true);
+                zipPickedFolder(files).then((zip) => finish(zip)).catch((err: any) => {
+                  setLoading(false);
+                  message.error(err?.message || '打包文件夹失败');
+                });
+              }}
+            />
+          </div>
         ) : null}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>
           <Button onClick={onClose}>取消</Button>

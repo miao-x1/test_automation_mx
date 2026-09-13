@@ -18,9 +18,7 @@ export function UserMenu() {
     <Dropdown
       menu={{
         items: [
-          { key: 'projects', label: '项目管理', onClick: () => navigate('/projects') },
           { key: 'profile', label: '个人中心', onClick: () => navigate('/profile') },
-          { key: 'platform', label: '平台设置', onClick: () => navigate('/profile/platform') },
           { key: 'system', label: '系统管理', onClick: () => navigate('/system') },
           { key: 'logout', label: '退出登录', onClick: async () => {
             await logout();
@@ -111,9 +109,9 @@ export function WorkspaceTopBar({
         type="button"
         className="pw-agent-btn"
         onClick={() => openProjectAgent()}
-        aria-label={`agent助手，当前项目 ${projectName || '当前项目'}`}
+        aria-label={`AI 测试助手，当前项目 ${projectName || '当前项目'}`}
       >
-        agent助手
+        AI 测试助手
       </button>
     </div>
   );

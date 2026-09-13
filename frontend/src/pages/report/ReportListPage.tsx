@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, Drawer, Descriptions, Table, Button, Tag, Space, message, Typography, Tooltip, Row, Col, Statistic, Progress } from 'antd';
-import { EyeOutlined, DownloadOutlined, ReloadOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { Card, Drawer, Descriptions, Table, Button, Tag, Space, message, Typography, Tooltip } from 'antd';
+import { EyeOutlined, DownloadOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons';
 import request from '@/services/request';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
+import { fetchProjectUnderstanding, openProjectAgent } from '@/services/projectExplorer';
+import '../shell/shell.css';
 
 const { Title } = Typography;
 
@@ -38,6 +40,8 @@ export default function ReportListPage() {
   const [projectName, setProjectName] = useState(getCurrentProjectName());
   const [detail, setDetail] = useState<any | null>(null);
   const [showReport, setShowReport] = useState(false);
+  const [pane, setPane] = useState<'overview' | 'risk' | 'coverage' | 'history'>('overview');
+  const [coverage, setCoverage] = useState<any>(null);
 
   const fetchData = useCallback(async (p: number, ps: number) => {
     setLoading(true);
@@ -62,6 +66,11 @@ export default function ReportListPage() {
 
   useEffect(() => { fetchData(page, pageSize); }, [page, pageSize, fetchData]);
   useEffect(() => {
+    const projectId = getCurrentProjectId();
+    if (!projectId) return;
+    fetchProjectUnderstanding(projectId).then((data) => setCoverage(data?.coverage || null)).catch(() => setCoverage(null));
+  }, [projectName]);
+  useEffect(() => {
     const reload = () => {
       setProjectName(getCurrentProjectName());
       fetchData(1, pageSize);
@@ -76,33 +85,38 @@ export default function ReportListPage() {
   const passRate = data.length > 0 ? Math.round((passedCount / data.length) * 1000) / 10 : 0;
 
   return (
-    <div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card>
-            <Statistic title="执行总数" value={data.length} prefix={<FileTextOutlined />} />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="通过" value={passedCount} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="失败" value={failedCount} valueStyle={{ color: '#ff4d4f' }} prefix={<CloseCircleOutlined />} />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="通过率" value={passRate} suffix="%" precision={1} />
-            <Progress percent={passRate} showInfo={false} strokeColor="#52c41a" style={{ marginTop: 8 }} />
-          </Card>
-        </Col>
-      </Row>
+    <div className="pw-page">
+      <div className="pw-head">
+        <div>
+          <h1>测试报告</h1>
+          <p>用当前项目{projectName ? `「${projectName}」` : ''}已完成的执行记录做结论，不编造报告。</p>
+        </div>
+        <Button onClick={() => openProjectAgent('总结本次测试风险')}>✦ 总结本次测试风险</Button>
+      </div>
+      <div className="sub-tabs">
+        <button type="button" className={pane === 'overview' ? 'is-on' : ''} onClick={() => setPane('overview')}>报告概览</button>
+        <button type="button" className={pane === 'risk' ? 'is-on' : ''} onClick={() => setPane('risk')}>风险分析</button>
+        <button type="button" className={pane === 'coverage' ? 'is-on' : ''} onClick={() => setPane('coverage')}>覆盖率</button>
+        <button type="button" className={pane === 'history' ? 'is-on' : ''} onClick={() => setPane('history')}>历史报告</button>
+      </div>
+      {pane === 'coverage' ? (
+        <div className="uw-panel" style={{ marginBottom: 16 }}>
+          {coverage ? <p>覆盖率 {coverage.rate ?? coverage.score ?? '-'}{coverage.rate != null || coverage.score != null ? '%' : ''}。{coverage.advice || ''}</p> : <p>当前项目还没有覆盖率数据。</p>}
+        </div>
+      ) : null}
+      {pane === 'risk' ? (
+        <div className="uw-panel" style={{ marginBottom: 16 }}>
+          <p>失败执行 {failedCount} 份。{failedCount ? '从下方历史报告里打开失败记录查看详情。' : '这一页没有失败报告。'}</p>
+        </div>
+      ) : null}
+      {pane === 'overview' ? (
+        <div className="uw-panel" style={{ marginBottom: 16 }}>
+          <p>执行记录 {data.length} · 通过率 {passRate}% · 失败 {failedCount} · 高风险 {failedCount}{coverage ? ` · 覆盖率 ${coverage.rate ?? coverage.score ?? '-'}${coverage.rate != null || coverage.score != null ? '%' : ''}` : ''}</p>
+        </div>
+      ) : null}
 
       <Card
-        title={<Title level={4} style={{ margin: 0 }}><FileTextOutlined /> 测试报告{projectName ? ` · ${projectName}` : ''}</Title>}
+        title={<Title level={4} style={{ margin: 0 }}><FileTextOutlined /> 历史报告</Title>}
         extra={<Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize)}>刷新</Button>}
       >
         <Table

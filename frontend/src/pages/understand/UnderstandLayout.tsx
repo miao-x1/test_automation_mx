@@ -1,7 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Drawer, Dropdown, Input, Modal, Popover, Space, Upload, message } from 'antd';
-import { zipPickedFolder } from '@/utils/projectZip';
 import { getCurrentProjectId, PROJECT_CHANGED } from '@/pages/product/projectStore';
 import {
   analyzeProject,
@@ -9,11 +8,14 @@ import {
   fetchProjectUnderstanding,
   importGitRepo,
   importProjectArchive,
+  importProjectFolder,
   importSampleRepo,
   openProjectAgent,
 } from '@/services/projectExplorer';
+import FolderPicker from '../shell/FolderPicker';
 import { STATUS_TEXT, searchUnderstanding } from './understanding';
 import './understand.css';
+import '../shell/shell.css';
 
 type DrawerState = { title: string; body: any } | null;
 
@@ -33,14 +35,24 @@ export function useUnderstanding() {
   return ctx;
 }
 
+const UNDERSTAND_TABS = [
+  { key: 'overview', label: '项目概览', path: '/understand' },
+  { key: 'business', label: '业务知识', path: '/understand/flows' },
+  { key: 'architecture', label: '系统架构', path: '/understand/modules' },
+  { key: 'features', label: '功能模块', path: '/understand/features' },
+  { key: 'apis', label: '接口信息', path: '/understand/apis' },
+  { key: 'tech', label: '技术信息', path: '/understand/code' },
+];
+
 export default function UnderstandLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState('');
   const [query, setQuery] = useState('');
   const [drawer, setDrawer] = useState<DrawerState>(null);
-  const folderRef = useRef<HTMLInputElement>(null);
 
   const status = data?.imported ? (data.status || 'partial') : 'empty';
 
@@ -130,6 +142,7 @@ export default function UnderstandLayout() {
             </Dropdown>
           </div>
           <div className="uw-actions">
+            <Button onClick={() => ask('分析当前项目')}>✦ AI 分析项目</Button>
             <Dropdown
               menu={{
                 items: [
@@ -158,6 +171,20 @@ export default function UnderstandLayout() {
           </div>
         </header>
         <div className="uw-main">
+          <div className="sub-tabs">
+            {UNDERSTAND_TABS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={(item.path === '/understand'
+                  ? location.pathname === '/understand' || location.pathname === '/understand/'
+                  : location.pathname.startsWith(item.path)) ? 'is-on' : ''}
+                onClick={() => navigate(item.path)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <Outlet />
         </div>
       </div>
@@ -182,7 +209,25 @@ export default function UnderstandLayout() {
             }
           }}>导入 Git 仓库</Button>
           <Space>
-            <Button onClick={() => folderRef.current?.click()}>上传本地文件夹</Button>
+            <FolderPicker
+              label="上传本地文件夹"
+              disabled={loading}
+              onPick={async (files) => {
+                const projectId = getCurrentProjectId();
+                if (!projectId) return;
+                setLoading(true);
+                try {
+                  await importProjectFolder(projectId, files);
+                  message.success('已上传并完成分析');
+                  setImportOpen(false);
+                  await reload();
+                } catch (err: any) {
+                  message.error(apiError(err, '上传失败'));
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            />
             <Upload accept=".zip" maxCount={1} showUploadList={false} beforeUpload={async (file) => {
               const projectId = getCurrentProjectId();
               if (!projectId) return false;
@@ -202,35 +247,6 @@ export default function UnderstandLayout() {
               <Button>上传 ZIP</Button>
             </Upload>
           </Space>
-          <input
-            ref={(el) => {
-              folderRef.current = el;
-              if (el) {
-                el.setAttribute('webkitdirectory', '');
-                el.setAttribute('directory', '');
-              }
-            }}
-            type="file"
-            multiple
-            hidden
-            onChange={async (event) => {
-              const files = event.target.files;
-              event.target.value = '';
-              const projectId = getCurrentProjectId();
-              if (!files?.length || !projectId) return;
-              setLoading(true);
-              try {
-                await importProjectArchive(projectId, await zipPickedFolder(files));
-                message.success('已上传并完成分析');
-                setImportOpen(false);
-                await reload();
-              } catch (err: any) {
-                message.error(apiError(err, '上传失败'));
-              } finally {
-                setLoading(false);
-              }
-            }}
-          />
         </div>
       </Modal>
 

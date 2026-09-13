@@ -1,8 +1,8 @@
 /**
  * 登录后一级目录：项目管理 / 项目工作台。
- * 项目工作台内沿用理解、设计、任务、执行、知识。
+ * 工作台内：理解、设计、任务、执行、报告；资产独立。
  */
-import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate, Outlet, useParams } from 'react-router-dom';
 
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
@@ -59,6 +59,7 @@ import TeamPage from './pages/product/TeamPage';
 import ProjectPage from './pages/product/ProjectPage';
 import InvitePage from './pages/product/InvitePage';
 import UnderstandLayout from './pages/understand/UnderstandLayout';
+import RequirementAnalysisPage from './pages/understand/RequirementAnalysisPage';
 import {
   ApisSection,
   CodeSection,
@@ -72,11 +73,12 @@ import {
 import { AgentSection } from './pages/understand/UnderstandAgent';
 import TestTaskListPage from './pages/product/TestTaskListPage';
 import TestTaskWorkbenchPage from './pages/product/TestTaskWorkbenchPage';
-import { getCurrentProjectId } from './pages/product/projectStore';
+import { getCurrentProjectId, setCurrentProjectId } from './pages/product/projectStore';
+import { fetchWorkspace } from './services/workspace';
 import ProjectWorkspaceLayout from './pages/shell/ProjectWorkspaceLayout';
 import ProjectCenterPage from './pages/shell/ProjectCenterPage';
-import ProjectWorkbenchPage from './pages/shell/ProjectWorkbenchPage';
 import DesignStudioPage from './pages/shell/DesignStudioPage';
+import { DefectPage, RegressionPage, TestPrepPage, TestReportPage, TestRunPage, VerifyPage } from './pages/pipeline/pipelinePages';
 import './pages/product/product.css';
 
 import { isAuthenticated } from './services/auth';
@@ -94,6 +96,53 @@ function RequireProject() {
   const projectId = getCurrentProjectId();
   if (!projectId) return <Navigate to="/projects" replace />;
   return <Outlet />;
+}
+
+const PROJECT_WORKSPACE_ALIAS: Record<string, string> = {
+  '': '/understand',
+  '/': '/understand',
+  '/overview': '/understand',
+  '/understanding': '/understand',
+  '/design': '/design',
+  '/tasks': '/test-tasks',
+  '/execution': '/execute',
+  '/reports': '/report',
+  '/prepare': '/prepare',
+  '/defects': '/defects',
+  '/verify': '/verify',
+  '/regression': '/regression',
+};
+
+function aliasWorkspacePath(suffix: string) {
+  if (PROJECT_WORKSPACE_ALIAS[suffix]) return PROJECT_WORKSPACE_ALIAS[suffix];
+  const rules: Array<[string, string]> = [
+    ['/understanding', '/understand'],
+    ['/design', '/design'],
+    ['/tasks', '/test-tasks'],
+    ['/execution', '/execute'],
+    ['/reports', '/report'],
+    ['/overview', '/understand'],
+  ];
+  for (const [from, to] of rules) {
+    if (suffix === from || suffix.startsWith(`${from}/`)) return `${to}${suffix.slice(from.length)}`;
+  }
+  return '/understand';
+}
+
+function BindProjectWorkspace() {
+  const { projectId } = useParams();
+  const location = useLocation();
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || id <= 0) return <Navigate to="/projects" replace />;
+  if (getCurrentProjectId() !== id) {
+    setCurrentProjectId(id);
+    fetchWorkspace().then((data) => {
+      const row = (data?.projects || []).find((item: { id: number }) => item.id === id);
+      if (row?.name) setCurrentProjectId(id, row.name);
+    }).catch(() => undefined);
+  }
+  const suffix = location.pathname.replace(/^\/project\/\d+\/workspace/, '') || '/';
+  return <Navigate to={aliasWorkspacePath(suffix)} replace />;
 }
 
 function AppRoutes() {
@@ -123,9 +172,11 @@ function AppRoutes() {
           <Route path="/system/ai/agent-runtime" element={<AgentRuntimePage />} />
           <Route path="/system/ai/agent-monitor" element={<AgentMonitorPage />} />
           <Route path="/system/ai/sessions" element={<SessionCenterV2 />} />
+          <Route path="/project/:projectId/workspace/*" element={<BindProjectWorkspace />} />
           <Route element={<RequireProject />}>
           <Route path="/knowledge" element={<KnowledgeCenter />} />
-          <Route path="/workbench" element={<ProjectWorkbenchPage />} />
+          <Route path="/workbench" element={<Navigate to="/understand" replace />} />
+          <Route path="/understand/requirements" element={<RequirementAnalysisPage />} />
           <Route path="/understand" element={<UnderstandLayout />}>
             <Route index element={<OverviewSection />} />
             <Route path="pages" element={<PagesSection />} />
@@ -138,12 +189,15 @@ function AppRoutes() {
             <Route path="agent" element={<AgentSection />} />
           </Route>
           <Route path="/design" element={<DesignStudioPage />} />
-          <Route path="/design/scenarios" element={<DesignStudioPage />} />
-          <Route path="/design/cases" element={<DesignStudioPage />} />
-          <Route path="/design/data" element={<DesignStudioPage />} />
+          <Route path="/design/:section" element={<DesignStudioPage />} />
           <Route path="/test-tasks" element={<TestTaskListPage />} />
           <Route path="/test-tasks/:id" element={<TestTaskWorkbenchRoute />} />
-          <Route path="/execute" element={<ExecutionListPage />} />
+          <Route path="/prepare" element={<TestPrepPage />} />
+          <Route path="/execute" element={<TestRunPage />} />
+          <Route path="/defects" element={<DefectPage />} />
+          <Route path="/verify" element={<VerifyPage />} />
+          <Route path="/regression" element={<RegressionPage />} />
+          <Route path="/report" element={<TestReportPage />} />
           <Route path="/task" element={<TaskListPage />} />
           <Route path="/task/create" element={<CreateTestPage />} />
           <Route path="/task/:id" element={<TaskDetail />} />
@@ -180,13 +234,12 @@ function AppRoutes() {
           <Route path="/execution/debug" element={<ApiDebugPage />} />
           <Route path="/performance" element={<PerformanceListPage />} />
           <Route path="/performance/:id" element={<PerformanceDetailPage />} />
-          <Route path="/report" element={<ReportListPage />} />
           <Route path="/report/:id" element={<WebTaskDetail />} />
           </Route>
         </Route>
 
         <Route path="/workspace" element={<Navigate to="/projects" replace />} />
-        <Route path="/dashboard" element={<Navigate to="/workbench" replace />} />
+        <Route path="/dashboard" element={<Navigate to="/understand" replace />} />
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="/home" element={<Navigate to="/projects" replace />} />
         <Route path="/account" element={<Navigate to="/profile" replace />} />

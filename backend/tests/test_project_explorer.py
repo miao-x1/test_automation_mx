@@ -197,3 +197,10 @@ def test_index_and_memory_isolated_by_user_and_project(tmp_path, monkeypatch):
     assert forbidden.status_code == 403
     mem_forbidden = client.get("/project-explorer/memory", params={"project_id": proj_a_id}, headers=bob_h)
     assert mem_forbidden.status_code == 403
+
+
+def test_folder_relpath_rejects_escape():
+    assert ProjectIndexer._safe_relpath("../etc/passwd") is None
+    assert ProjectIndexer._safe_relpath("src/app.tsx") == Path("src/app.tsx")
+    assert ProjectIndexer._should_skip(Path("app/node_modules/x.js"))
+    assert not ProjectIndexer._should_skip(Path("src/pages/Login.tsx"))

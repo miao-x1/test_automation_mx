@@ -12,6 +12,7 @@ from app.models.team import Project
 KINDS = {
     "understanding", "structure", "question", "confirmed", "focus",
     "conclusion", "test_design", "test_execution", "message",
+    "test_prep", "test_run", "defect", "regression", "test_report",
 }
 
 
@@ -100,6 +101,19 @@ class ProjectMemoryService:
         finally:
             db.close()
 
+    def get_by_title(self, user_id: int, project_id: int, kind: str, title: str) -> Optional[dict[str, Any]]:
+        db = SessionLocal()
+        try:
+            row = db.query(ProjectMemoryItem).filter(
+                ProjectMemoryItem.user_id == user_id,
+                ProjectMemoryItem.project_id == project_id,
+                ProjectMemoryItem.kind == kind,
+                ProjectMemoryItem.title == title[:255],
+            ).first()
+            return self._row(row) if row else None
+        finally:
+            db.close()
+
     def search(self, user_id: int, project_id: int, keyword: str, limit: int = 12) -> list[dict[str, Any]]:
         db = SessionLocal()
         try:
@@ -109,7 +123,10 @@ class ProjectMemoryService:
                 ProjectMemoryItem.project_id == project_id,
                 (ProjectMemoryItem.title.like(like)) | (ProjectMemoryItem.content.like(like)),
             ).order_by(ProjectMemoryItem.updated_at.desc()).limit(limit * 3).all()
-            preferred = [row for row in rows if row.kind in {"conclusion", "focus", "understanding", "confirmed", "test_design", "test_execution"}]
+            preferred = [row for row in rows if row.kind in {
+                "conclusion", "focus", "understanding", "confirmed", "test_design", "test_execution",
+                "test_prep", "test_run", "defect", "regression", "test_report",
+            }]
             return [self._row(row) for row in preferred[:limit]]
         finally:
             db.close()

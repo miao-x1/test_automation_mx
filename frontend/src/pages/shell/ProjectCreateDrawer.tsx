@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Drawer, Form, Input, Radio, Select, Space, Upload, message } from 'antd';
 import { createProject, fetchWorkspace, type Organization, type Project } from '@/services/workspace';
-import { apiError, importGitRepo, importProjectArchive, importSampleRepo } from '@/services/projectExplorer';
+import { apiError, importGitRepo, importProjectArchive, importProjectFolder, importSampleRepo } from '@/services/projectExplorer';
 import { setCurrentProjectId } from '@/pages/product/projectStore';
-import { pickedFolderName, zipPickedFolder } from '@/utils/projectZip';
+import { pickedFolderName } from '@/utils/projectZip';
+import FolderPicker from './FolderPicker';
 
 type Mode = 'create' | 'import';
 
@@ -24,7 +25,6 @@ export default function ProjectCreateDrawer({
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
   const source = Form.useWatch('source', form);
-  const folderRef = useRef<HTMLInputElement>(null);
   const intoExisting = mode === 'import' && !!project;
   const title = intoExisting ? `导入到「${project.name}」` : mode === 'import' ? '导入项目' : '新建项目';
 
@@ -38,7 +38,7 @@ export default function ProjectCreateDrawer({
     fetchWorkspace().then((data) => {
       const items = data?.organizations || [];
       setOrgs(items);
-      const personal = items.find((item) => item.is_personal) || items[0];
+      const personal = items.find((item: Organization) => item.is_personal) || items[0];
       if (personal) form.setFieldValue('organization_id', personal.id);
     }).catch(() => undefined);
   }, [open, form, mode, project]);
@@ -51,7 +51,7 @@ export default function ProjectCreateDrawer({
     return { id, name: values.name };
   };
 
-  const finish = async (file?: File) => {
+  const finish = async (file?: File, folder?: File[]) => {
     const fields = intoExisting ? ['source'] : ['name', 'organization_id', 'type', 'source'];
     if (source === 'github' || source === 'git') fields.push('repo_url');
     const values = await form.validateFields(fields);
@@ -65,6 +65,9 @@ export default function ProjectCreateDrawer({
       } else if ((source === 'github' || source === 'git') && values.repo_url) {
         await importGitRepo(next.id, values.repo_url);
         message.success('已从 Git 仓库导入');
+      } else if (source === 'local' && folder?.length) {
+        await importProjectFolder(next.id, folder);
+        message.success('已从本地文件夹导入');
       } else if (source === 'local' && file) {
         await importProjectArchive(next.id, file);
         message.success('已从本地项目导入');
@@ -118,7 +121,16 @@ export default function ProjectCreateDrawer({
           <div>
             <p style={{ color: 'var(--text-muted)', margin: '0 0 8px' }}>可以选择本地文件夹，也可以继续上传 ZIP。会自动跳过 node_modules、.git 等目录。</p>
             <Space>
-              <Button onClick={() => folderRef.current?.click()}>选择文件夹</Button>
+              <FolderPicker
+                label="选择文件夹"
+                disabled={loading}
+                onPick={(files) => {
+                  if (!intoExisting && !form.getFieldValue('name')) {
+                    form.setFieldValue('name', pickedFolderName(files));
+                  }
+                  void finish(undefined, files);
+                }}
+              />
               <Upload
                 accept=".zip"
                 maxCount={1}
@@ -131,31 +143,6 @@ export default function ProjectCreateDrawer({
                 <Button>选择 ZIP</Button>
               </Upload>
             </Space>
-            <input
-              ref={(el) => {
-                folderRef.current = el;
-                if (el) {
-                  el.setAttribute('webkitdirectory', '');
-                  el.setAttribute('directory', '');
-                }
-              }}
-              type="file"
-              multiple
-              hidden
-              onChange={(event) => {
-                const files = event.target.files;
-                event.target.value = '';
-                if (!files?.length) return;
-                if (!intoExisting && !form.getFieldValue('name')) {
-                  form.setFieldValue('name', pickedFolderName(files));
-                }
-                setLoading(true);
-                zipPickedFolder(files).then((zip) => finish(zip)).catch((err: any) => {
-                  setLoading(false);
-                  message.error(err?.message || '打包文件夹失败');
-                });
-              }}
-            />
           </div>
         ) : null}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>

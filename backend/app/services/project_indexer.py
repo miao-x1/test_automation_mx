@@ -5,6 +5,7 @@ import ast
 import io
 import json
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Any, Optional
@@ -437,13 +438,57 @@ class ProjectIndexer:
         finally:
             db.close()
 
+    def import_files(self, user_id: int, project_id: int, items: list[tuple[str, bytes]]) -> dict[str, Any]:
+        if not items:
+            raise ValueError("没有可导入的文件")
+        total = sum(len(data or b"") for _, data in items)
+        if total > 40 * 1024 * 1024:
+            raise ValueError("文件夹打包后超过 40MB，请去掉依赖目录后再试")
+        db = SessionLocal()
+        try:
+            project = db.query(Project).filter(Project.id == project_id).first()
+            if not project:
+                raise ValueError("项目不存在")
+            root = Path("data") / "project_sources" / str(user_id) / str(project_id)
+            self._clear_dir(root)
+            root.mkdir(parents=True, exist_ok=True)
+            written = 0
+            for rel, data in items:
+                path = self._safe_relpath(rel)
+                if not path or self._should_skip(path) or data is None:
+                    continue
+                dest = root / path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+                written += 1
+            if written == 0:
+                raise ValueError("这个文件夹里没有可导入的文件")
+            roots = [p for p in root.iterdir() if p.is_dir() and p.name not in SKIP_DIRS]
+            code_root = roots[0] if len(roots) == 1 else root
+            folder_name = roots[0].name if len(roots) == 1 else "project"
+            meta = {"owner": "upload", "name": folder_name, "branch": "", "url": folder_name, "host": "folder"}
+            return self._persist(db, user_id, project, "folder", folder_name, meta, code_root)
+        finally:
+            db.close()
+
+    @staticmethod
+    def _safe_relpath(rel: str) -> Optional[Path]:
+        text = (rel or "").replace("\\", "/").strip().lstrip("/")
+        if not text or text.startswith(".."):
+            return None
+        parts = [part for part in text.split("/") if part and part not in {".", ".."}]
+        if not parts:
+            return None
+        return Path(*parts)
+
+    @staticmethod
+    def _should_skip(path: Path) -> bool:
+        return any(part in SKIP_DIRS for part in path.parts)
+
     @staticmethod
     def _clear_dir(root: Path) -> None:
-        if not root.exists():
-            return
-        for child in root.rglob("*"):
-            if child.is_file():
-                child.unlink(missing_ok=True)
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
 
     def import_sample(self, user_id: int, project_id: int) -> dict[str, Any]:
         root = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "sample_codebase"

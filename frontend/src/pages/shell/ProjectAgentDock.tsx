@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button, Dropdown, Input, Popover, message } from 'antd';
 import axios from 'axios';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
@@ -7,14 +7,16 @@ import {
   PROJECT_AGENT_ASK,
   PROJECT_AGENT_OPEN,
   PROJECT_MEMORY_CHANGED,
+  PROJECT_REQUIREMENT_CHANGED,
+  PROJECT_DESIGN_CHANGED,
   apiError,
   askProjectAgent,
   fetchProjectIndex,
   fetchProjectMemory,
   type AgentReply,
 } from '@/services/projectExplorer';
+import { PROJECT_PIPELINE_CHANGED } from '@/services/testPipeline';
 import { fetchLifecycleAssets } from '@/services/assetLifecycle';
-import { listExecutions } from '@/services/apiExec';
 import request from '@/services/request';
 import { ProjectSwitcherMenu } from './ProjectHeaderBar';
 import SimpleMarkdown from './agent/SimpleMarkdown';
@@ -24,6 +26,8 @@ import {
   cardsFromReply,
   composeQuestion,
   needsWriteConfirm,
+  pageContextOf,
+  pagePromptOf,
   statusLabel,
   stepsFromReply,
   workspaceFromChips,
@@ -44,6 +48,7 @@ function loadMode(): AgentMode {
 
 export default function ProjectAgentDock() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
@@ -68,7 +73,7 @@ export default function ProjectAgentDock() {
       setProjectName(getCurrentProjectName() || '当前项目');
       setTurns([]);
       setQuestion('');
-      setChips([]);
+      setChips(pageContextOf(window.location.pathname));
       setPicker(null);
       setStatus('idle');
       abortRef.current?.abort();
@@ -84,6 +89,14 @@ export default function ProjectAgentDock() {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns, loading, open, status]);
+
+  useEffect(() => {
+    setChips((prev) => {
+      const page = pageContextOf(location.pathname);
+      const extras = prev.filter((item) => item.kind !== 'context');
+      return [...page, ...extras];
+    });
+  }, [location.pathname, projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +153,15 @@ export default function ProjectAgentDock() {
       }]);
       setStatus('completed');
       window.dispatchEvent(new CustomEvent(PROJECT_MEMORY_CHANGED));
+      if ((reply?.actions || []).some((item) => item?.type === 'requirement_analysis')) {
+        window.dispatchEvent(new CustomEvent(PROJECT_REQUIREMENT_CHANGED));
+      }
+      if ((reply?.actions || []).some((item) => item?.type === 'design_test')) {
+        window.dispatchEvent(new CustomEvent(PROJECT_DESIGN_CHANGED));
+      }
+      if ((reply?.actions || []).some((item) => item?.type === 'pipeline')) {
+        window.dispatchEvent(new CustomEvent(PROJECT_PIPELINE_CHANGED));
+      }
     } catch (err: any) {
       if (axios.isCancel(err) || err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {
         setTurns((prev) => [...prev, { role: 'assistant', text: '已停止。' }]);
@@ -266,8 +288,10 @@ export default function ProjectAgentDock() {
   };
 
   const openResultPicker = async () => {
+    const currentId = getCurrentProjectId();
+    if (!currentId) return message.info('请先选择一个项目');
     try {
-      const data: any = await listExecutions({ page: 1, page_size: 12 });
+      const data: any = await request.get('/executions/list', { params: { page: 1, page_size: 12, project_id: currentId } });
       const rows = data?.items || data?.data?.items || [];
       const items = rows.map((item: any) => ({
         label: `#${item.execution_id || item.id} ${item.status || ''}`.trim(),
@@ -294,7 +318,7 @@ export default function ProjectAgentDock() {
   const headerStatus = loading ? (status === 'thinking' ? 'thinking' : 'running') : status;
 
   return (
-    <div className="agent-wb-root">
+    <div className={`agent-wb-root ${open ? 'is-open' : ''}`}>
       <aside className={`agent-wb ${open ? 'is-open' : ''}`}>
         <header className="agent-wb-top">
           <div className="agent-wb-brand">
@@ -308,7 +332,7 @@ export default function ProjectAgentDock() {
           <Dropdown
             menu={{
               items: [
-                { key: 'new', label: '新建对话', onClick: () => { setTurns([]); setStatus('idle'); setChips([]); } },
+                { key: 'new', label: '新建对话', onClick: () => { setTurns([]); setStatus('idle'); setChips(pageContextOf(location.pathname)); } },
                 { key: 'history', label: '历史对话', onClick: () => void loadHistory() },
                 { key: 'clear', label: '清空当前对话', onClick: () => { setTurns([]); setStatus('idle'); } },
               ],
@@ -333,6 +357,13 @@ export default function ProjectAgentDock() {
           {turns.length === 0 && !loading ? (
             <div className="agent-wb-empty">
               针对「{projectName || '当前项目'}」下达测试任务。Agent 只使用当前项目的理解、资产和执行数据。
+              {pagePromptOf(location.pathname) ? (
+                <div style={{ marginTop: 12 }}>
+                  <button type="button" className="agent-chip" onClick={() => void submit(pagePromptOf(location.pathname) || '')}>
+                    ✦ {pagePromptOf(location.pathname)}
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -440,7 +471,10 @@ export default function ProjectAgentDock() {
           {chips.length ? (
             <div className="agent-chips">
               {chips.map((chip) => (
-                <button key={chip.id} type="button" className="agent-chip" onClick={() => setChips((prev) => prev.filter((item) => item.id !== chip.id))}>
+                <button key={chip.id} type="button" className="agent-chip" onClick={() => {
+                  if (chip.id === 'ctx-project') return;
+                  setChips((prev) => prev.filter((item) => item.id !== chip.id));
+                }}>
                   {chip.kind === 'file' ? '📎' : '@'}{chip.label} ×
                 </button>
               ))}

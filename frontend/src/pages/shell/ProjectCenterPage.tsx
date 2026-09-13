@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, Drawer, Dropdown, Empty, Input, Modal, Space, message } from 'antd';
 import { deleteProject, fetchWorkspace, updateProject, type Project } from '@/services/workspace';
 import { fetchProjectUnderstanding } from '@/services/projectExplorer';
+import { useNavigate } from 'react-router-dom';
 import { getCurrentProjectId, setCurrentProjectId } from '@/pages/product/projectStore';
 import { formatAgo } from './nav';
 import ProjectCreateDrawer from './ProjectCreateDrawer';
@@ -10,6 +11,7 @@ import './shell.css';
 type Extra = { pages?: number | null; cases?: number | null; updated?: string | null; type: string };
 
 export default function ProjectCenterPage() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [extras, setExtras] = useState<Record<number, Extra>>({});
   const [loaded, setLoaded] = useState(false);
@@ -54,6 +56,7 @@ export default function ProjectCenterPage() {
   const select = (project: Project) => {
     setSelectedId(project.id);
     setCurrentProjectId(project.id, project.name);
+    navigate('/understand');
   };
 
   const visible = useMemo(
@@ -66,7 +69,7 @@ export default function ProjectCenterPage() {
       <div className="pc-head">
         <div>
           <h1>项目管理</h1>
-          <p>一行列出一个项目。新建、导入或删除后，到项目工作台继续工作。</p>
+          <p>选择一个项目后进入该项目的工作台。项目之间的理解、设计、任务和执行互相隔离。</p>
         </div>
         <Space>
           <Input allowClear placeholder="搜索项目" value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />

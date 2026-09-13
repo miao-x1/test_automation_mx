@@ -17,6 +17,7 @@ INTENT_PATHS = {
     "answer": "直接回答",
     "locate": "项目代码定位",
     "analyze_requirement": "需求分析",
+    "design_test": "测试设计",
     "generate_cases": "生成测试用例",
     "supplement_exception": "补充异常场景",
     "supplement_boundary": "补充边界场景",
@@ -29,6 +30,12 @@ INTENT_PATHS = {
     "generate_report": "生成测试报告",
     "full_test": "一站式全面测试",
     "create_task": "创建测试任务",
+    "prepare_data": "生成测试数据",
+    "prepare_accounts": "生成测试账号",
+    "check_env": "环境检查",
+    "run_batch": "创建执行批次",
+    "draft_bugs": "缺陷草稿",
+    "regress": "回归测试",
 }
 
 _ANSWER_HINTS = ("什么是", "什么叫", "解释一下", "怎么理解", "定义")
@@ -36,7 +43,10 @@ _COUNT_HINTS = ("几个", "多少", "数量", "有几")
 _LOCATE_HINTS = ("哪个文件", "在哪", "定位", "代码在", "找一下", "哪段代码")
 _FULL_HINTS = ("全面测试", "完整测试", "帮我测试这个项目", "帮我测这个项目", "一站式")
 _CASE_HINTS = ("测试用例", "给我", "生成用例", "写用例", "出用例")
-_ANALYZE_HINTS = ("分析这个需求", "分析需求", "需求分析")
+_ANALYZE_HINTS = (
+    "分析这个需求", "分析需求", "需求分析", "解析PRD", "解析prd",
+    "分析PRD", "分析prd", "分析这份需求", "分析当前需求", "需求材料", "PRD",
+)
 _EXCEPTION_HINTS = ("异常场景", "补充异常", "异常用例")
 _BOUNDARY_HINTS = ("边界场景", "补充边界", "边界用例")
 _COVERAGE_HINTS = ("覆盖率", "覆盖检查", "缺什么用例")
@@ -47,6 +57,13 @@ _FAIL_HINTS = ("失败原因", "为什么失败", "分析失败", "定位失败"
 _BUG_HINTS = ("生成bug", "提缺陷", "生成缺陷", "记一个bug")
 _REPORT_HINTS = ("测试报告", "生成报告")
 _TASK_HINTS = ("创建测试任务", "新建测试任务")
+_DESIGN_HINTS = ("生成测试设计", "开始测试设计", "设计当前需求的测试")
+_PREP_DATA_HINTS = ("生成测试数据", "批量生成测试数据")
+_PREP_ACC_HINTS = ("生成测试账号", "批量生成测试账号")
+_PREP_ENV_HINTS = ("环境检查", "检查测试环境")
+_RUN_BATCH_HINTS = ("创建执行批次", "批量开始执行")
+_DRAFT_BUG_HINTS = ("生成缺陷草稿", "从失败生成缺陷")
+_REG_HINTS = ("创建回归", "开始回归测试", "回归测试批次")
 
 
 def _contains(text: str, tokens: tuple[str, ...]) -> bool:
@@ -58,8 +75,26 @@ def classify_intent(question: str, workspace: str = "understand") -> str:
     text = (question or "").strip()
     if _contains(text, _FULL_HINTS):
         return "full_test"
+    if workspace == "design" and any(token in text for token in ("测试设计", "生成测试设计", "开始测试设计", "生成测试场景", "设计当前需求")):
+        return "design_test"
+    if any(token in text for token in ("做测试设计", "生成测试设计", "开始测试设计")):
+        return "design_test"
     if _contains(text, _ANALYZE_HINTS):
         return "analyze_requirement"
+    if _contains(text, _DESIGN_HINTS):
+        return "design_test"
+    if _contains(text, _PREP_DATA_HINTS):
+        return "prepare_data"
+    if _contains(text, _PREP_ACC_HINTS):
+        return "prepare_accounts"
+    if _contains(text, _PREP_ENV_HINTS):
+        return "check_env"
+    if _contains(text, _RUN_BATCH_HINTS):
+        return "run_batch"
+    if _contains(text, _DRAFT_BUG_HINTS):
+        return "draft_bugs"
+    if _contains(text, _REG_HINTS):
+        return "regress"
     if _contains(text, _EXCEPTION_HINTS):
         return "supplement_exception"
     if _contains(text, _BOUNDARY_HINTS):
@@ -88,14 +123,16 @@ def classify_intent(question: str, workspace: str = "understand") -> str:
         return "generate_cases"
     if text.startswith("帮我测试") and "这个项目" not in text:
         return "create_task"
-    if any(token in text for token in ("设计测试", "测试设计", "帮我设计")):
+    if any(token in text for token in ("设计测试", "测试设计", "帮我设计", "生成测试场景")):
+        if workspace == "design" or "测试设计" in text or "生成测试场景" in text:
+            return "design_test"
         return "analyze_requirement"
     if _contains(text, _EXECUTE_HINTS) and "测试" in text:
         return "execute"
     if workspace == "execute" and any(token in text for token in ("失败", "执行", "回归")):
         return "execute" if "失败" not in text else "analyze_failure"
-    if workspace == "design" and any(token in text for token in ("用例", "场景", "测试点")):
-        return "generate_cases" if "用例" in text else "analyze_requirement"
+    if workspace == "design" and any(token in text for token in ("用例", "场景", "测试点", "测试范围", "测试对象")):
+        return "generate_cases" if "用例" in text else "design_test"
     return "locate"
 
 

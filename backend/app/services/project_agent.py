@@ -11,6 +11,9 @@ from app.services.asset_lifecycle import AssetLifecycleService
 from app.services.project_indexer import ProjectIndexer
 from app.services.project_memory import ProjectMemoryService
 from app.services.project_understanding import ProjectUnderstandingService
+from app.services.requirement_analysis_doc import RequirementAnalysisDocService
+from app.services.test_design_doc import TestDesignDocService
+from app.services.test_pipeline import TestPipelineService
 from app.services.testing_brain import (
     INTENT_PATHS,
     TestingBrainService,
@@ -86,8 +89,16 @@ class ProjectAgentService:
         memory_hits = [item for item in (brain.get("memory") or []) if item.get("kind") not in {"question", "message"}]
         actions: list[dict[str, Any]] = []
 
-        if intent == "analyze_requirement":
-            actions.extend(self._analyze(user_id, project_id, question, test_task_id))
+        if intent == "design_test" or (intent == "analyze_requirement" and workspace == "design"):
+            actions.extend(self._design_test_doc(user_id, project_id, question))
+            answer = self._work_answer(actions)
+        elif intent == "analyze_requirement":
+            actions.extend(self._analyze_requirement_doc(user_id, project_id, question))
+            answer = self._work_answer(actions)
+        elif intent in {
+            "prepare_data", "prepare_accounts", "check_env", "run_batch", "draft_bugs", "regress",
+        } or (intent == "generate_report" and not test_task_id):
+            actions.extend(self._pipeline_work(user_id, project_id, question, intent))
             answer = self._work_answer(actions)
         elif intent in {
             "generate_cases", "supplement_exception", "supplement_boundary",
@@ -97,9 +108,9 @@ class ProjectAgentService:
             actions.extend(self._route_work(user_id, project_id, question, intent, unique, test_task_id))
             answer = self._work_answer(actions)
         elif workspace == "design" and any(token in question for token in ("测试", "用例", "场景", "设计")) and intent == "locate":
-            actions.extend(self._design(user_id, project_id, question, unique))
+            actions.extend(self._design_test_doc(user_id, project_id, question))
             answer = self._work_answer(actions)
-            intent = "analyze_requirement"
+            intent = "design_test"
         elif workspace == "execute" and intent in {"execute", "analyze_failure"}:
             actions.extend(self._execute(user_id, project_id, question))
             answer = self._work_answer(actions)
@@ -165,12 +176,15 @@ class ProjectAgentService:
         name = ((snap or {}).get("project") or {}).get("name")
         if name:
             return name
-        db = SessionLocal()
         try:
-            row = db.query(Project).filter(Project.id == project_id).first()
-            return (row.name if row else "") or "当前项目"
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                row = db.query(Project).filter(Project.id == project_id).first()
+                return (row.name if row else "") or "当前项目"
+            finally:
+                db.close()
+        except Exception:
+            return "当前项目"
 
     def _knowledge_answer(self, question: str) -> Optional[str]:
         q = question or ""
@@ -271,6 +285,45 @@ class ProjectAgentService:
                 lines.append(f"已写入测试设计：{asset.get('name') or '测试设计'}。")
             if action.get("type") == "analyze_requirement":
                 lines.append("需求已分析并写入当前项目。")
+            if action.get("type") == "pipeline":
+                lines.append(action.get("summary") or "已写入测试链路数据。")
+            if action.get("type") == "design_test":
+                doc = action.get("document") or {}
+                summary = ((doc.get("interaction") or {}).get("summary") or "").strip()
+                questions = ((doc.get("interaction") or {}).get("questions") or [])[:3]
+                if summary:
+                    lines.append(summary)
+                else:
+                    counts = doc.get("counts") or {}
+                    lines.append(
+                        f"已完成测试设计，共 {counts.get('objects') or 0} 个测试对象、"
+                        f"{counts.get('scenarios') or 0} 个测试场景。"
+                    )
+                headline = ((doc.get("plan") or {}).get("headline") or "").strip()
+                if headline and headline not in (summary or ""):
+                    lines.append(headline)
+                if questions:
+                    lines.append("关键问题（可跳过）：")
+                    for item in questions:
+                        lines.append(f"- {item.get('question')}")
+                lines.append("结果已写入测试设计工作台，均追溯到需求分析。打开 /design 查看对象、场景和来源需求，本阶段不生成完整测试用例。")
+            if action.get("type") == "requirement_analysis":
+                doc = action.get("document") or {}
+                summary = ((doc.get("interaction") or {}).get("summary") or "").strip()
+                questions = ((doc.get("interaction") or {}).get("questions") or [])[:3]
+                if summary:
+                    lines.append(summary)
+                else:
+                    counts = doc.get("counts") or {}
+                    lines.append(
+                        f"已完成需求分析，共识别 {counts.get('functions') or 0} 项功能、"
+                        f"{counts.get('rules') or 0} 条业务规则。"
+                    )
+                if questions:
+                    lines.append("关键问题（可跳过）：")
+                    for item in questions:
+                        lines.append(f"- {item.get('question')}")
+                lines.append("结构化结果已写入「需求分析」，不会在本阶段生成测试用例。")
             if action.get("type") in {"generate_cases", "generated_cases", "supplement_exception", "supplement_boundary"}:
                 lines.append(f"已生成 {len(action.get('cases') or [])} 条用例。")
             if action.get("type") == "full_test":
@@ -402,7 +455,84 @@ class ProjectAgentService:
                 actions.extend(self._design(user_id, project_id, question, hits))
         return actions
 
+    def _pipeline_work(self, user_id: int, project_id: int, question: str, intent: str) -> list[dict[str, Any]]:
+        pipe = TestPipelineService(self.memory)
+        path = "/prepare"
+        summary = ""
+        document: dict[str, Any] = {}
+        try:
+            if intent == "prepare_data":
+                match = re.search(r"(\d+)", question or "")
+                data = pipe.generate_data(user_id, project_id, int(match.group(1)) if match else 20)
+                document = data
+                summary = f"已生成 {data['count']} 条测试数据，ID 从 {data['created'][0]['id']} 到 {data['created'][-1]['id']}。"
+                path = "/prepare"
+            elif intent == "prepare_accounts":
+                match = re.search(r"(\d+)", question or "")
+                data = pipe.generate_accounts(user_id, project_id, int(match.group(1)) if match else 10)
+                document = data
+                summary = f"已生成 {data['count']} 个账号清单，状态均为待在实际系统中创建。"
+                path = "/prepare"
+            elif intent == "check_env":
+                document = pipe.check_environment(user_id, project_id)
+                fail = len([item for item in document.get("env_checks") or [] if item.get("status") == "FAIL"])
+                unknown = len([item for item in document.get("env_checks") or [] if item.get("status") == "UNKNOWN"])
+                summary = f"环境检查完成。FAIL {fail}，UNKNOWN {unknown}。UNKNOWN 不会记为通过。"
+                path = "/prepare"
+            elif intent == "run_batch":
+                document = pipe.create_run_batch(user_id, project_id)
+                summary = f"已创建执行批次 {document['id']}，共 {document['stats']['total']} 条，全部为 NOT_EXECUTED。"
+                path = "/execute"
+            elif intent == "draft_bugs":
+                data = pipe.draft_bugs_from_fails(user_id, project_id)
+                document = data
+                summary = f"已从 FAIL 记录生成 {data['count']} 条缺陷草稿，需确认后提交。"
+                path = "/defects"
+            elif intent == "regress":
+                defects = pipe.get_defects(user_id, project_id)
+                bug_ids = [item["id"] for item in (defects.get("bugs") or []) if item.get("status") not in {"CLOSED", "REJECTED", "DUPLICATE"}]
+                document = pipe.create_regression(user_id, project_id, bug_ids[:8])
+                summary = f"已创建回归批次 {document['id']}，用例 {document['stats']['total']} 条。"
+                path = "/regression"
+            else:
+                document = pipe.generate_report(user_id, project_id)
+                summary = f"已汇总测试报告 {document['id']}。{document.get('conclusion')}"
+                path = "/report"
+        except ValueError as exc:
+            summary = str(exc)
+        return [{"type": "pipeline", "intent": intent, "document": document, "summary": summary, "path": path}]
+
+    def _design_test_doc(self, user_id: int, project_id: int, question: str) -> list[dict[str, Any]]:
+        docs = TestDesignDocService(self.memory)
+        document = docs.design_from_question(user_id, project_id, question)
+        return [{
+            "type": "design_test",
+            "document": document,
+            "path": "/design",
+        }]
+
+    def _analyze_requirement_doc(self, user_id: int, project_id: int, question: str) -> list[dict[str, Any]]:
+        docs = RequirementAnalysisDocService(self.memory)
+        try:
+            project_name = self._project_name(project_id)
+        except Exception:
+            project_name = ""
+        document = docs.analyze_from_question(
+            user_id, project_id, question, project_name=project_name,
+        )
+        return [{
+            "type": "requirement_analysis",
+            "document": document,
+            "path": "/understand/requirements",
+        }]
+
     def _analyze(self, user_id: int, project_id: int, question: str, test_task_id: Optional[int]) -> list[dict[str, Any]]:
+        try:
+            confirmed = RequirementAnalysisDocService(self.memory).get(user_id, project_id)
+        except Exception:
+            confirmed = {}
+        if confirmed.get("status") == "confirmed" and confirmed.get("design_input"):
+            question = f"{confirmed['design_input']}\n\n{question}"
         analysis = self.brain.analyze(question)
         content = (
             f"目标：{infer_module(question)}\n"

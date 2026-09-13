@@ -35,9 +35,14 @@ export type Turn = {
 export const CONTEXT_OPTIONS: Array<{ key: string; label: string; workspace?: ContextChip['workspace'] }> = [
   { key: 'project', label: '当前项目' },
   { key: 'understand', label: '项目理解', workspace: 'understand' },
+  { key: 'requirements', label: '需求分析', workspace: 'understand' },
   { key: 'design', label: '测试设计', workspace: 'design' },
-  { key: 'tasks', label: '测试任务', workspace: 'design' },
+  { key: 'tasks', label: '测试用例', workspace: 'design' },
+  { key: 'prepare', label: '测试准备', workspace: 'execute' },
   { key: 'execute', label: '测试执行', workspace: 'execute' },
+  { key: 'defects', label: '缺陷管理', workspace: 'execute' },
+  { key: 'verify', label: '缺陷验证', workspace: 'execute' },
+  { key: 'regression', label: '回归测试', workspace: 'execute' },
   { key: 'cases', label: '测试用例', workspace: 'design' },
   { key: 'results', label: '测试结果', workspace: 'execute' },
   { key: 'api', label: 'API', workspace: 'understand' },
@@ -46,10 +51,12 @@ export const CONTEXT_OPTIONS: Array<{ key: string; label: string; workspace?: Co
 ];
 
 export const SKILLS: Array<{ key: string; label: string; draft: string; write?: boolean }> = [
+  { key: 'requirement', label: '需求分析', draft: '分析当前需求材料' },
   { key: 'analyze', label: '测试分析', draft: '分析当前项目的测试风险' },
-  { key: 'design', label: '测试设计', draft: '帮我设计当前项目的测试', write: true },
+  { key: 'design', label: '测试设计', draft: '根据已有需求分析做测试设计' },
   { key: 'cases', label: '测试用例生成', draft: '根据当前项目生成测试用例', write: true },
-  { key: 'defect', label: '缺陷分析', draft: '分析失败原因' },
+  { key: 'prepare', label: '测试准备', draft: '批量生成测试数据 20', write: true },
+  { key: 'defect', label: '缺陷分析', draft: '从失败生成缺陷', write: true },
   { key: 'auto', label: '自动化脚本生成', draft: '把测试用例转成自动化脚本', write: true },
   { key: 'report', label: '测试报告', draft: '生成测试报告', write: true },
   { key: 'code', label: '代码分析', draft: '最核心的代码文件是哪个？' },
@@ -60,10 +67,13 @@ const WRITE_HINTS = [
   '创建测试任务', '新建测试任务', '执行测试', '跑一下', '跑这些用例',
   '生成报告', '生成测试报告', '提缺陷', '生成缺陷', '生成bug',
   '转自动化', '生成脚本', '补充异常', '补充边界',
+  '生成测试数据', '生成测试账号', '创建执行批次', '从失败生成缺陷', '创建回归',
 ];
 
 const ACTION_LABEL: Record<string, string> = {
   analyze_requirement: '分析需求',
+  requirement_analysis: '需求分析',
+  design_test: '测试设计',
   create_test_design: '写入测试设计',
   generate_cases: '生成测试用例',
   generated_cases: '生成测试用例',
@@ -77,12 +87,69 @@ const ACTION_LABEL: Record<string, string> = {
   list_executions: '查询执行记录',
   create_bug: '写入缺陷',
   generate_report: '生成测试报告',
+  pipeline: '测试链路',
+  prepare_data: '生成测试数据',
+  prepare_accounts: '生成测试账号',
+  check_env: '环境检查',
+  run_batch: '创建执行批次',
+  draft_bugs: '缺陷草稿',
+  regress: '回归测试',
 };
 
 export function workspaceOf(pathname: string): 'understand' | 'design' | 'execute' {
-  if (pathname.startsWith('/execute') || pathname.startsWith('/execution') || pathname.startsWith('/report')) return 'execute';
+  if (
+    pathname.startsWith('/execute') || pathname.startsWith('/execution') || pathname.startsWith('/report')
+    || pathname.startsWith('/prepare') || pathname.startsWith('/defects') || pathname.startsWith('/verify')
+    || pathname.startsWith('/regression')
+  ) return 'execute';
   if (pathname.startsWith('/design') || pathname.startsWith('/test-tasks') || pathname.startsWith('/task')) return 'design';
   return 'understand';
+}
+
+export function pageContextOf(pathname: string): ContextChip[] {
+  const project: ContextChip = { id: 'ctx-project', kind: 'context', label: '当前项目' };
+  if (pathname.startsWith('/understand/requirements')) {
+    return [project, { id: 'ctx-requirements', kind: 'context', label: '需求分析', workspace: 'understand' }];
+  }
+  if (pathname.startsWith('/understand')) {
+    return [project, { id: 'ctx-understand', kind: 'context', label: '项目理解', workspace: 'understand' }];
+  }
+  if (pathname.startsWith('/design')) {
+    return [project, { id: 'ctx-design', kind: 'context', label: '测试设计', workspace: 'design' }];
+  }
+  if (pathname.startsWith('/prepare')) {
+    return [project, { id: 'ctx-prepare', kind: 'context', label: '测试准备', workspace: 'execute' }];
+  }
+  if (pathname.startsWith('/defects') || pathname.startsWith('/verify')) {
+    return [project, { id: 'ctx-defects', kind: 'context', label: '缺陷管理', workspace: 'execute' }];
+  }
+  if (pathname.startsWith('/regression')) {
+    return [project, { id: 'ctx-regression', kind: 'context', label: '回归测试', workspace: 'execute' }];
+  }
+  if (pathname.startsWith('/test-tasks') || pathname.startsWith('/task')) {
+    return [project, { id: 'ctx-tasks', kind: 'context', label: '测试用例', workspace: 'design' }];
+  }
+  if (pathname.startsWith('/execute') || pathname.startsWith('/execution')) {
+    return [project, { id: 'ctx-execute', kind: 'context', label: '测试执行', workspace: 'execute' }];
+  }
+  if (pathname.startsWith('/report')) {
+    return [project, { id: 'ctx-reports', kind: 'context', label: '测试报告', workspace: 'execute' }];
+  }
+  return [project];
+}
+
+export function pagePromptOf(pathname: string): string | null {
+  if (pathname.startsWith('/understand/requirements')) return '分析当前需求材料';
+  if (pathname.startsWith('/understand')) return '分析当前项目';
+  if (pathname.startsWith('/design')) return '根据已有需求分析做测试设计';
+  if (pathname.startsWith('/test-tasks')) return '根据当前项目生成测试用例';
+  if (pathname.startsWith('/prepare')) return '批量生成测试数据 20';
+  if (pathname.startsWith('/execute') || pathname.startsWith('/execution')) return '创建执行批次';
+  if (pathname.startsWith('/defects')) return '从失败生成缺陷';
+  if (pathname.startsWith('/verify')) return '分析失败原因';
+  if (pathname.startsWith('/regression')) return '创建回归测试批次';
+  if (pathname.startsWith('/report')) return '生成测试报告';
+  return null;
 }
 
 export function needsWriteConfirm(text: string, mode: AgentMode) {
@@ -96,8 +163,8 @@ export function workspaceFromChips(chips: ContextChip[], fallback: 'understand' 
 }
 
 export function composeQuestion(text: string, chips: ContextChip[]) {
-  const tags = chips.map((item) => `@${item.label}`).filter(Boolean);
-  if (!tags.length) return text;
+  const labels = chips.map((item) => item.label).filter(Boolean);
+  const tags = ['当前项目', ...labels.filter((label) => label !== '当前项目')].map((label) => `@${label}`);
   return `${tags.join(' ')}\n${text}`;
 }
 
@@ -158,6 +225,10 @@ export function stepsFromReply(reply: AgentReply): AgentStep[] {
     if (Array.isArray(action.cases)) lines.push(`用例 ${action.cases.length} 条`);
     if (action.coverage?.score != null) lines.push(`覆盖率 ${action.coverage.score}%`);
     if (Array.isArray(action.items)) lines.push(`执行记录 ${action.items.length} 条`);
+    if (action.document?.completeness != null) lines.push(`完成度 ${action.document.completeness}%`);
+    if (action.document?.counts?.functions != null) lines.push(`功能 ${action.document.counts.functions}`);
+    if (action.document?.counts?.objects != null) lines.push(`对象 ${action.document.counts.objects}`);
+    if (action.document?.counts?.scenarios != null) lines.push(`场景 ${action.document.counts.scenarios}`);
     steps.push({
       key: `action-${index}`,
       label,
@@ -186,7 +257,44 @@ export function cardsFromReply(reply: AgentReply): ResultCard[] {
       ],
     });
   }
-  if (actions.some((item) => item?.type === 'create_test_design' || item?.type === 'analyze_requirement')) {
+  if (actions.some((item) => item?.type === 'pipeline')) {
+    const action = actions.find((item) => item?.type === 'pipeline');
+    const count = action?.document?.count || action?.document?.stats?.total || action?.document?.created?.length || 0;
+    cards.push({
+      title: action?.summary || '测试链路已更新',
+      stats: count ? [{ label: '产出', value: count }] : [],
+      buttons: action?.path ? [{ label: '打开结果', path: action.path }] : [],
+    });
+  }
+  if (actions.some((item) => item?.type === 'design_test')) {
+    const doc = actions.find((item) => item?.type === 'design_test')?.document || {};
+    const counts = doc.counts || {};
+    cards.push({
+      title: '测试设计完成',
+      stats: [
+        { label: '完成度', value: `${doc.completeness ?? 0}%` },
+        { label: '对象', value: counts.objects ?? 0 },
+        { label: '场景', value: counts.scenarios ?? 0 },
+        { label: '待确认', value: counts.open_questions ?? 0 },
+      ],
+      buttons: [{ label: '查看测试设计', path: '/design' }],
+    });
+  }
+  if (actions.some((item) => item?.type === 'requirement_analysis')) {
+    const doc = actions.find((item) => item?.type === 'requirement_analysis')?.document || {};
+    const counts = doc.counts || {};
+    cards.push({
+      title: '需求分析完成',
+      stats: [
+        { label: '完成度', value: `${doc.completeness ?? 0}%` },
+        { label: '功能', value: counts.functions ?? 0 },
+        { label: '规则', value: counts.rules ?? 0 },
+        { label: '待确认', value: counts.open_questions ?? 0 },
+      ],
+      buttons: [{ label: '查看需求分析', path: '/understand/requirements' }],
+    });
+  }
+  if (actions.some((item) => item?.type === 'create_test_design')) {
     cards.push({
       title: '测试设计完成',
       stats: [

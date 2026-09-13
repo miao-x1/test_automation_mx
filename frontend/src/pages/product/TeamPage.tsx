@@ -121,7 +121,7 @@ export default function TeamPage() {
               className="product-tile"
               onClick={() => {
                 setCurrentProjectId(project.id, project.name);
-                navigate('/workbench');
+                navigate('/understand');
               }}
             >
               <strong>{project.name}</strong>
@@ -268,7 +268,7 @@ export default function TeamPage() {
           projectForm.resetFields();
           if (created?.id) {
             setCurrentProjectId(created.id, created.name);
-            navigate('/workbench');
+            navigate('/understand');
           } else {
             load();
           }

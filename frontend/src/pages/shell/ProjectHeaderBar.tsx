@@ -5,6 +5,7 @@ import { getStoredUser, logout, type UserInfo } from '@/services/auth';
 import { fetchWorkspace, type Project } from '@/services/workspace';
 import { getCurrentProjectId, setCurrentProjectId, PROJECT_CHANGED } from '@/pages/product/projectStore';
 import { openProjectAgent } from '@/services/projectExplorer';
+import { formatAgo } from './nav';
 
 export function UserMenu() {
   const navigate = useNavigate();
@@ -28,9 +29,9 @@ export function UserMenu() {
         ],
       }}
     >
-      <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="pw-user">
         <Avatar size="small" src={user?.avatar}>{user?.display_name?.[0] || user?.username?.[0] || '用'}</Avatar>
-        <span>{user?.display_name || user?.username || '用户'}</span>
+        <span className="pw-user-name">{user?.display_name || user?.username || '用户'}</span>
       </div>
     </Dropdown>
   );
@@ -70,7 +71,7 @@ export function ProjectSwitcherMenu({ onCreate }: { onCreate: () => void }) {
             }}
           >
             <span className="pw-mark">{item.name.slice(0, 1)}</span>
-            <span>{item.id === currentId ? '✓ ' : ''}{item.name}</span>
+            <span title={item.name}>{item.id === currentId ? '✓ ' : ''}{item.name}</span>
           </button>
         ))}
       </div>
@@ -84,35 +85,50 @@ export function ProjectSwitcherMenu({ onCreate }: { onCreate: () => void }) {
 export function WorkspaceTopBar({
   projectName,
   status,
+  stack,
+  updatedAt,
   onCreate,
 }: {
   projectName: string;
   status: string;
+  stack?: string;
+  updatedAt?: string | null;
   onCreate: () => void;
 }) {
+  const navigate = useNavigate();
   return (
     <div className="pw-workspace-top">
       <div className="pw-workspace-left">
         <Popover trigger="click" placement="bottomLeft" content={<ProjectSwitcherMenu onCreate={onCreate} />}>
-          <button type="button" className="pw-switch">
+          <button type="button" className="pw-switch" title={projectName || '当前项目'}>
             <span className="pw-mark">{(projectName || 'P').slice(0, 1)}</span>
-            <b>{projectName || '当前项目'}</b>
-            <span>▼</span>
+            <span className="pw-switch-copy">
+              <b>{projectName || '当前项目'}</b>
+              <small>项目工作台</small>
+            </span>
+            <span className="pw-switch-caret">▼</span>
           </button>
         </Popover>
-        <span className="pw-workspace-status">
-          <i className={`pw-dot ${status === 'ready' ? 'ok' : status === 'empty' ? '' : 'warn'}`} />
-          {status === 'ready' ? '项目正常' : status === 'empty' ? '尚未分析' : '部分完成'}
-        </span>
+        <div className="pw-workspace-facts">
+          <span className="pw-workspace-status">
+            <i className={`pw-dot ${status === 'ready' ? 'ok' : status === 'empty' ? '' : 'warn'}`} />
+            {status === 'ready' ? '已分析' : status === 'empty' ? '尚未分析' : '部分完成'}
+          </span>
+          {stack ? <span className="pw-workspace-meta" title={stack}>{stack}</span> : null}
+          <span className="pw-workspace-meta">更新 {formatAgo(updatedAt)}</span>
+        </div>
       </div>
-      <button
-        type="button"
-        className="pw-agent-btn"
-        onClick={() => openProjectAgent()}
-        aria-label={`AI 测试助手，当前项目 ${projectName || '当前项目'}`}
-      >
-        AI 测试助手
-      </button>
+      <div className="pw-workspace-right">
+        <button type="button" className="pw-agent-btn" onClick={() => navigate('/projects')}>项目设置</button>
+        <button
+          type="button"
+          className="pw-agent-btn"
+          onClick={() => openProjectAgent()}
+          aria-label={`AI 测试助手，当前项目 ${projectName || '当前项目'}`}
+        >
+          AI 测试助手
+        </button>
+      </div>
     </div>
   );
 }
@@ -123,7 +139,7 @@ export function HeaderTools() {
       <Popover content="通知会来自当前项目的执行失败和任务状态。现在没有独立通知服务。" trigger="click">
         <button className="pw-icon-btn" type="button" aria-label="通知">通知</button>
       </Popover>
-      <Popover content="项目是容器。项目理解、测试设计、测试任务、测试执行、知识是项目内工作区。agent助手对应选中的项目。" trigger="click">
+      <Popover content="项目是容器。需求、设计、用例、准备、执行、缺陷、验证、回归、报告都在当前项目内完成。Agent 只使用当前项目数据。" trigger="click">
         <button className="pw-icon-btn" type="button" aria-label="帮助">帮助</button>
       </Popover>
       <UserMenu />

@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { message } from 'antd';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
 import { fetchProjectUnderstanding } from '@/services/projectExplorer';
-import { PROJECT_NAV, appNavOfPath, navGroupOfPath } from './nav';
+import { ASSET_NAV, FLOW_NAV, appNavOfPath, navGroupOfPath } from './nav';
 import { HeaderTools, WorkspaceTopBar } from './ProjectHeaderBar';
 import ProjectCreateDrawer from './ProjectCreateDrawer';
 import ProjectAgentDock, { PROJECT_CREATE_OPEN } from './ProjectAgentDock';
@@ -14,16 +14,14 @@ export default function ProjectWorkspaceLayout() {
   const location = useLocation();
   const [projectName, setProjectName] = useState(getCurrentProjectName() || '当前项目');
   const [status, setStatus] = useState('empty');
-  const [workspaceOpen, setWorkspaceOpen] = useState(appNavOfPath(location.pathname) === 'workspace');
+  const [stack, setStack] = useState('');
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [flowOpen, setFlowOpen] = useState(true);
+  const [assetOpen, setAssetOpen] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const first = appNavOfPath(location.pathname);
   const selected = navGroupOfPath(location.pathname);
   const inWorkspace = first === 'workspace';
-
-  useEffect(() => {
-    if (appNavOfPath(location.pathname) === 'workspace') setWorkspaceOpen(true);
-    else setWorkspaceOpen(false);
-  }, [location.pathname]);
 
   useEffect(() => {
     const openCreate = () => setCreateOpen(true);
@@ -44,14 +42,12 @@ export default function ProjectWorkspaceLayout() {
     fetchProjectUnderstanding(projectId).then((data) => {
       setStatus(data?.imported ? (data.status || 'partial') : 'empty');
       if (data?.project?.name) setProjectName(data.project.name);
+      setStack((data?.project?.stack || []).join(' · '));
+      setUpdatedAt(data?.updated_at || null);
     }).catch(() => undefined);
   }, [location.pathname, projectName]);
 
-  const toggleWorkspace = () => {
-    setWorkspaceOpen((open) => !open);
-  };
-
-  const goWorkspaceChild = (path: string) => {
+  const go = (path: string) => {
     if (!getCurrentProjectId()) {
       message.info('请先在项目管理中选择一个项目');
       navigate('/projects');
@@ -81,24 +77,46 @@ export default function ProjectWorkspaceLayout() {
             >
               项目管理
             </button>
+
             <button
               type="button"
               className="pw-nav-item pw-nav-first pw-nav-split"
-              aria-expanded={workspaceOpen}
-              aria-label={workspaceOpen ? '收起项目工作台' : '展开项目工作台'}
-              onClick={toggleWorkspace}
+              aria-expanded={flowOpen}
+              onClick={() => setFlowOpen((open) => !open)}
             >
               <span className="pw-nav-text">项目工作台</span>
-              <span className="pw-nav-caret-right" aria-hidden="true">{workspaceOpen ? '▾' : '▸'}</span>
+              <span className="pw-nav-caret-right">{flowOpen ? '▾' : '▸'}</span>
             </button>
-            {workspaceOpen ? PROJECT_NAV.map((item) => (
+            {flowOpen ? FLOW_NAV.map((item) => (
               <button
                 key={item.key}
                 type="button"
-                className={`pw-nav-l2 ${selected === item.key ? 'is-on' : ''}`}
-                onClick={() => goWorkspaceChild(item.path)}
+                className={`pw-nav-l2 ${inWorkspace && selected === item.key ? 'is-on' : ''}`}
+                onClick={() => go(item.path)}
               >
-                {item.label}
+                <span className="pw-nav-ico">{item.icon}</span>
+                <span className="pw-nav-l2-text">{item.label}</span>
+              </button>
+            )) : null}
+
+            <button
+              type="button"
+              className="pw-nav-item pw-nav-first pw-nav-split"
+              aria-expanded={assetOpen}
+              onClick={() => setAssetOpen((open) => !open)}
+            >
+              <span className="pw-nav-text">资产</span>
+              <span className="pw-nav-caret-right">{assetOpen ? '▾' : '▸'}</span>
+            </button>
+            {assetOpen ? ASSET_NAV.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`pw-nav-l2 ${inWorkspace && selected === item.key ? 'is-on' : ''}`}
+                onClick={() => go(item.path)}
+              >
+                <span className="pw-nav-ico">{item.icon}</span>
+                <span className="pw-nav-l2-text">{item.label}</span>
               </button>
             )) : null}
           </div>
@@ -108,6 +126,8 @@ export default function ProjectWorkspaceLayout() {
             <WorkspaceTopBar
               projectName={projectName}
               status={status}
+              stack={stack}
+              updatedAt={updatedAt}
               onCreate={() => setCreateOpen(true)}
             />
           ) : null}

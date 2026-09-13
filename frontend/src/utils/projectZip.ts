@@ -92,7 +92,31 @@ function buildZip(entries: { path: string; data: Uint8Array }[]): Blob {
   put32(endView, 16, offset);
   put16(endView, 20, 0);
 
-  return new Blob([...chunks, ...centrals, end], { type: 'application/zip' });
+  const parts: ArrayBuffer[] = [];
+  for (const item of chunks) parts.push(toBlobPart(item));
+  for (const item of centrals) parts.push(toBlobPart(item));
+  parts.push(toBlobPart(end));
+  return new Blob(parts, { type: 'application/zip' });
+}
+
+function toBlobPart(data: Uint8Array): ArrayBuffer {
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+}
+
+export function collectImportableFiles(files: FileList | File[]): { path: string; file: File }[] {
+  const picked: { path: string; file: File }[] = [];
+  let total = 0;
+  for (const file of Array.from(files)) {
+    const path = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
+    if (!path || shouldSkip(path) || file.size > MAX_FILE) continue;
+    if (total + file.size > MAX_ZIP) {
+      throw new Error('文件夹超过 40MB，请去掉 node_modules、dist 等目录后再试');
+    }
+    total += file.size;
+    picked.push({ path, file });
+    if (picked.length >= 800) break;
+  }
+  return picked;
 }
 
 export async function zipPickedFolder(files: FileList | File[]): Promise<File> {

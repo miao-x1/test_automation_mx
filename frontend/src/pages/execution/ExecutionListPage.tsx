@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Card, Drawer, Descriptions, Table, Button, Tag, Space, message, Typography, Tabs, Progress, Tooltip } from 'antd';
+import { Card, Drawer, Descriptions, Table, Button, Tag, Space, message, Tabs, Progress, Tooltip } from 'antd';
 import { ReloadOutlined, EyeOutlined } from '@ant-design/icons';
 import request from '@/services/request';
 import { getCurrentProjectId, getCurrentProjectName, PROJECT_CHANGED } from '@/pages/product/projectStore';
-
-const { Title } = Typography;
+import { openProjectAgent } from '@/services/projectExplorer';
+import { operateTestTask } from '@/services/projectTestTask';
+import '../shell/shell.css';
 
 /** 格式化耗时：2.5s / 45.8s / 1m 23s / 1h 5m 3s */
 function formatDuration(d?: number): string {
@@ -38,7 +39,61 @@ export default function ExecutionListPage() {
   const [activeTab, setActiveTab] = useState('all');
   const [projectName, setProjectName] = useState(getCurrentProjectName());
   const [detail, setDetail] = useState<any | null>(null);
+  const [detailLogs, setDetailLogs] = useState('');
   const [showReport, setShowReport] = useState(false);
+  const [pane, setPane] = useState<'overview' | 'records' | 'live' | 'fail'>('records');
+
+  const openDetail = async (row: any, report = false) => {
+    setShowReport(report);
+    setDetail(row);
+    setDetailLogs('');
+    try {
+      const res: any = await request.get(`/executions/${row.id}`);
+      setDetail(res?.data || res || row);
+    } catch {
+      setDetail(row);
+    }
+    try {
+      const res: any = await request.get(`/executions/${row.id}/logs`, {
+        responseType: 'text',
+        transformResponse: [(value: string) => value],
+      });
+      setDetailLogs(typeof res === 'string' ? res : res?.data || '');
+    } catch {
+      setDetailLogs('');
+    }
+  };
+
+  const retryRun = async (row: any) => {
+    try {
+      const res = await fetch(`/api/executions/${row.id}/retry`, { method: 'POST', credentials: 'include' });
+      const data = await res.json();
+      const packed = data.data || data;
+      if (packed.execution_id) {
+        message.success(`重试已提交 #${packed.execution_id}`);
+        fetchData(page, pageSize, activeTab);
+      } else {
+        message.error(data.message || '重试失败');
+      }
+    } catch {
+      message.error('重试失败');
+    }
+  };
+
+  const createDefect = async (row: any) => {
+    const projectId = getCurrentProjectId();
+    if (!projectId) return;
+    if (row.task_id) {
+      try {
+        await operateTestTask(projectId, row.task_id, 'create_bug');
+        message.success('已在当前任务写入缺陷');
+        return;
+      } catch (err: any) {
+        message.error(err?.response?.data?.detail || '写入缺陷失败');
+      }
+    }
+    openProjectAgent(`为执行 #${row.id} 创建缺陷`);
+  };
 
   const fetchData = useCallback(async (p: number, ps: number, status?: string) => {
     setLoading(true);
@@ -76,11 +131,49 @@ export default function ExecutionListPage() {
     pending: { color: 'orange', text: '排队中' },
   };
 
+  const running = data.filter((item) => item.status === 'running' || item.status === 'pending');
+  const failed = data.filter((item) => item.status === 'failed');
+  const passed = data.filter((item) => item.status === 'success');
+  const live = running[0];
+
   return (
-    <div>
+    <div className="pw-page">
+      <div className="pw-head">
+        <div>
+          <h1>测试执行</h1>
+          <p>只看当前项目{projectName ? `「${projectName}」` : ''}的执行记录。</p>
+        </div>
+        <Space>
+          <Button onClick={() => openProjectAgent('分析失败用例')}>✦ 分析失败用例</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize, activeTab)}>刷新</Button>
+        </Space>
+      </div>
+      <div className="sub-tabs">
+        <button type="button" className={pane === 'overview' ? 'is-on' : ''} onClick={() => setPane('overview')}>执行概览</button>
+        <button type="button" className={pane === 'records' ? 'is-on' : ''} onClick={() => { setPane('records'); setActiveTab('all'); }}>执行记录</button>
+        <button type="button" className={pane === 'live' ? 'is-on' : ''} onClick={() => { setPane('live'); setActiveTab('running'); setPage(1); }}>实时执行</button>
+        <button type="button" className={pane === 'fail' ? 'is-on' : ''} onClick={() => { setPane('fail'); setActiveTab('failed'); setPage(1); }}>失败分析</button>
+      </div>
+      {pane === 'overview' ? (
+        <div className="uw-panel" style={{ marginBottom: 16 }}>
+          <p>总记录 {total} · 当前页通过 {passed.length} · 失败 {failed.length} · 执行中 {running.length}</p>
+          {live ? (
+            <>
+              <p>正在执行：{live.name || live.job_name || `#${live.id}`}</p>
+              {(() => {
+                const done = (live.success_count || 0) + (live.failed_count || 0) + (live.skip_count || live.skipped_count || 0);
+                const all = live.total_count || live.case_count || done;
+                const rate = all > 0 ? Math.round((done / all) * 100) : 0;
+                return all > 0 ? <Progress percent={rate} size="small" /> : null;
+              })()}
+            </>
+          ) : <p>当前没有进行中的执行。</p>}
+        </div>
+      ) : null}
+      {pane === 'fail' && !failed.length ? <p style={{ color: 'var(--text-muted)' }}>当前项目这一页没有失败记录。</p> : null}
       <Card
-        title={<Title level={4} style={{ margin: 0 }}>测试执行{projectName ? ` · ${projectName}` : ''}</Title>}
-        extra={<Button icon={<ReloadOutlined />} onClick={() => fetchData(page, pageSize, activeTab)}>刷新</Button>}
+        title={null}
+        extra={null}
       >
         <Tabs
           activeKey={activeTab}
@@ -159,9 +252,9 @@ export default function ExecutionListPage() {
               render: (_: any, r: any) => (
                 <Space>
                   <Tooltip title="执行详情">
-                    <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => { setDetail(r); setShowReport(false); }}>执行详情</Button>
+                    <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => { void openDetail(r, false); }}>执行详情</Button>
                   </Tooltip>
-                  <Button type="link" size="small" onClick={() => { setDetail(r); setShowReport(true); }}>报告</Button>
+                  <Button type="link" size="small" onClick={() => { void openDetail(r, true); }}>报告</Button>
                 </Space>
               ),
             },
@@ -171,7 +264,7 @@ export default function ExecutionListPage() {
       <Drawer
         title={detail ? `执行 #${detail.id}` : '执行详情'}
         open={!!detail}
-        onClose={() => { setDetail(null); setShowReport(false); }}
+        onClose={() => { setDetail(null); setShowReport(false); setDetailLogs(''); }}
         width={720}
       >
         {detail ? (
@@ -182,6 +275,7 @@ export default function ExecutionListPage() {
               style={{ width: '100%', height: '70vh', border: '1px solid #d0d7de' }}
             />
           ) : (
+            <>
             <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="状态">{detail.status || '-'}</Descriptions.Item>
               <Descriptions.Item label="类型">{detail.execution_type || '-'}</Descriptions.Item>
@@ -192,7 +286,20 @@ export default function ExecutionListPage() {
               <Descriptions.Item label="开始时间">{detail.start_time || '-'}</Descriptions.Item>
               <Descriptions.Item label="结束时间">{detail.end_time || '-'}</Descriptions.Item>
               <Descriptions.Item label="AI 分析">{hasAIAnalysis(detail) ? '有' : '无'}</Descriptions.Item>
+              {detail.expected_result || detail.expected ? <Descriptions.Item label="预期">{detail.expected_result || detail.expected}</Descriptions.Item> : null}
+              {detail.actual_result || detail.actual ? <Descriptions.Item label="实际">{detail.actual_result || detail.actual}</Descriptions.Item> : null}
               {detail.error_message ? <Descriptions.Item label="错误">{detail.error_message}</Descriptions.Item> : null}
+              {detailLogs ? (
+                <Descriptions.Item label="执行日志">
+                  <pre style={{ whiteSpace: 'pre-wrap', margin: 0, maxHeight: 240, overflow: 'auto' }}>{detailLogs}</pre>
+                </Descriptions.Item>
+              ) : null}
+              {(detail.screenshot || detail.screenshot_url) ? (
+                <Descriptions.Item label="截图">
+                  <img src={detail.screenshot || detail.screenshot_url} alt="执行截图" style={{ maxWidth: '100%' }} />
+                </Descriptions.Item>
+              ) : null}
+              {detail.related_code || detail.source_file ? <Descriptions.Item label="相关代码">{detail.related_code || detail.source_file}</Descriptions.Item> : null}
               {detail.analysis_result ? (
                 <Descriptions.Item label="分析结果">
                   <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
@@ -201,6 +308,12 @@ export default function ExecutionListPage() {
                 </Descriptions.Item>
               ) : null}
             </Descriptions>
+            <Space style={{ marginTop: 12 }}>
+              <Button onClick={() => void retryRun(detail)}>重新执行</Button>
+              <Button onClick={() => openProjectAgent(`分析失败用例 执行 #${detail.id}`)}>分析失败原因</Button>
+              <Button onClick={() => void createDefect(detail)}>创建缺陷</Button>
+            </Space>
+            </>
           )
         ) : null}
       </Drawer>

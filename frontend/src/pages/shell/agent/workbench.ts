@@ -252,8 +252,8 @@ export function cardsFromReply(reply: AgentReply): ResultCard[] {
       title: '测试用例已生成',
       stats: [{ label: '用例', value: caseCount }],
       buttons: [
-        ...(taskId ? [{ label: '查看测试任务', path: `/test-tasks/${taskId}` }] : []),
-        { label: '查看测试设计', path: '/design/cases' },
+        { label: '打开测试用例', path: '/test-tasks' },
+        { label: '查看测试设计', path: '/design' },
       ],
     });
   }
@@ -303,7 +303,7 @@ export function cardsFromReply(reply: AgentReply): ResultCard[] {
       ],
       buttons: [
         { label: '查看测试设计', path: '/design' },
-        ...(taskId ? [{ label: '打开测试任务', path: `/test-tasks/${taskId}` }] : [{ label: '创建测试任务', path: '/test-tasks' }]),
+        { label: '打开测试用例', path: '/test-tasks' },
       ],
     });
   }
@@ -317,7 +317,7 @@ export function cardsFromReply(reply: AgentReply): ResultCard[] {
       ],
       buttons: [
         ...(taskId ? [{ label: '打开测试任务', path: `/test-tasks/${taskId}` }] : []),
-        { label: '测试任务列表', path: '/test-tasks' },
+        { label: '打开测试用例', path: '/test-tasks' },
       ],
     });
   }
@@ -359,7 +359,7 @@ export function cardsFromReply(reply: AgentReply): ResultCard[] {
       stats: [],
       buttons: [
         ...(taskId ? [{ label: '打开测试任务', path: `/test-tasks/${taskId}` }] : []),
-        { label: '查看测试任务', path: '/test-tasks' },
+        { label: '打开测试用例', path: '/test-tasks' },
       ],
     });
   }

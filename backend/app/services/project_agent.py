@@ -411,13 +411,24 @@ class ProjectAgentService:
         try:
             if test_task_id:
                 task = tasks.get_workspace(user_id, project_id, test_task_id)
-            elif intent in {"create_task", "full_test", "generate_cases", "analyze_requirement"}:
+            elif intent in {"create_task", "full_test", "analyze_requirement"}:
                 task = tasks.create_task(
                     user_id, project_id,
                     name=module if intent != "full_test" else "全项目测试",
                     requirement_text=question,
                     focus=module,
                 )
+            elif intent == "generate_cases" and not test_task_id:
+                from app.services.case_workbench import CaseWorkbenchService
+                generated = CaseWorkbenchService().generate(user_id, project_id, {"source_type": "TEXT", "text": question})
+                actions.append({
+                    "type": "generate_cases",
+                    "path": "/test-tasks",
+                    "cases": generated.get("created") or [],
+                    "quality": generated.get("quality"),
+                    "summary": f"已生成 {generated.get('count') or 0} 条结构化用例，状态为 AI_GENERATED，需评审后才能执行。",
+                })
+                return actions
             if task and intent != "create_task":
                 op = "analyze" if intent in {"full_test", "analyze_requirement"} else intent
                 if intent == "full_test":

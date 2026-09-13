@@ -27,7 +27,7 @@ export const PILLAR_BY_STAGE: Record<string, PillarKey> = Object.fromEntries(
 ) as Record<string, PillarKey>;
 
 export const WORKSPACE_LINKS: PillarLink[] = [
-  { title: '测试任务', desc: '专业测试人员的任务工作台，可只做局部工作', path: '/test-tasks' },
+  { title: '测试用例', desc: '独立的测试用例工作台，可承接设计也可直接生成', path: '/test-tasks' },
   { title: '测试环境', desc: '查看和配置当前可用的测试环境', path: '/system/environments' },
   { title: '测试资产总览', desc: '查看已沉淀的项目测试资产', path: '/asset/center' },
   { title: '进入项目理解', desc: '从系统探索和项目认知开始下一轮工作', path: '/understand' },

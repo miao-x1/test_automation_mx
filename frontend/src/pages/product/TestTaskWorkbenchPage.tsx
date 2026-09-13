@@ -122,7 +122,7 @@ export default function TestTaskWorkbenchPage() {
   return (
     <div className="product-shell product-wide">
       <div className="product-hero">
-        <Button type="link" onClick={() => navigate('/test-tasks')} style={{ paddingLeft: 0 }}>← 测试任务</Button>
+        <Button type="link" onClick={() => navigate('/test-tasks')} style={{ paddingLeft: 0 }}>← 测试用例</Button>
         <h1>{data?.name || '测试任务工作台'}</h1>
         <p>当前任务上下文会自动带上项目知识、页面、API 和已有用例。右侧 Agent 与这里共用同一个 Testing Brain。</p>
       </div>

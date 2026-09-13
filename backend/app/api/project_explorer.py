@@ -16,11 +16,13 @@ from app.services.project_understanding import ProjectUnderstandingService
 from app.services.requirement_analysis_doc import RequirementAnalysisDocService, extract_file_text
 from app.services.test_design_doc import TestDesignDocService
 from app.services.test_pipeline import TestPipelineService
+from app.services.case_workbench import CaseWorkbenchService
 from app.services.workspace_service import VIEW, require_owned_project
 
 _requirement_docs = RequirementAnalysisDocService()
 _test_designs = TestDesignDocService()
 _pipeline = TestPipelineService()
+_cases = CaseWorkbenchService()
 
 router = APIRouter()
 _indexer = ProjectIndexer()
@@ -595,3 +597,151 @@ def pipeline_reports(project_id: int = Query(...), user: User = Depends(require_
 def pipeline_report_create(payload: PipelineProject, user: User = Depends(require_auth)):
     _guard(user, payload.project_id)
     return Response(data=_pipeline.generate_report(user.id, payload.project_id))
+
+
+class CaseGenerateBody(BaseModel):
+    project_id: int
+    source_type: str = ""
+    text: str = ""
+    source_label: str = ""
+    module: str = ""
+    types: Optional[list[str]] = None
+    priorities: Optional[list[str]] = None
+    scenario_ids: Optional[list[str]] = None
+    td_ids: Optional[list[str]] = None
+
+
+class CaseWriteBody(BaseModel):
+    project_id: int
+    case: dict = Field(default_factory=dict)
+
+
+class CaseBatchBody(BaseModel):
+    project_id: int
+    ids: list[int]
+    review_status: Optional[str] = None
+    note: str = ""
+    patch: Optional[dict] = None
+
+
+@router.get("/cases/context", summary="测试用例入口上下文")
+def cases_context(project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    return Response(data=_cases.context(user.id, project_id))
+
+
+@router.get("/cases", summary="项目测试用例列表")
+def cases_list(project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    items = _cases.list_cases(user.id, project_id)
+    return Response(data={"items": items, "statistics": _cases.statistics(items)})
+
+
+@router.get("/cases/statistics", summary="测试用例统计")
+def cases_stats(project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    return Response(data=_cases.statistics(user_id=user.id, project_id=project_id))
+
+
+@router.get("/cases/coverage", summary="需求/设计/用例覆盖")
+def cases_coverage(project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    return Response(data=_cases.check_coverage(user.id, project_id))
+
+
+@router.get("/cases/quality", summary="检查用例质量")
+def cases_quality_get(project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    items = _cases.list_cases(user.id, project_id)
+    return Response(data=_cases.check_quality(items))
+
+
+@router.get("/cases/export", summary="导出测试用例 CSV")
+def cases_export(project_id: int = Query(...), ids: Optional[str] = Query(None), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    case_ids = [int(item) for item in (ids or "").split(",") if item.strip().isdigit()]
+    return Response(data={"csv": _cases.export_csv(user.id, project_id, case_ids or None)})
+
+
+@router.get("/cases/{case_id}", summary="测试用例详情")
+def cases_get(case_id: int, project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    try:
+        return Response(data=_cases.get_case(user.id, project_id, case_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cases", summary="人工创建测试用例")
+def cases_create(payload: CaseWriteBody, user: User = Depends(require_auth)):
+    _guard(user, payload.project_id)
+    try:
+        return Response(data=_cases.create_case(user.id, payload.project_id, payload.case or {}))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/cases/{case_id}", summary="修改测试用例")
+def cases_update(case_id: int, payload: CaseWriteBody, user: User = Depends(require_auth)):
+    _guard(user, payload.project_id)
+    try:
+        return Response(data=_cases.update_case(user.id, payload.project_id, case_id, payload.case or {}))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cases/generate", summary="从设计/需求/文本生成测试用例")
+def cases_generate(payload: CaseGenerateBody, user: User = Depends(require_auth)):
+    _guard(user, payload.project_id)
+    try:
+        return Response(data=_cases.generate(user.id, payload.project_id, payload.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cases/generate-upload", summary="上传资料后生成测试用例")
+async def cases_generate_upload(
+    project_id: int = Form(...),
+    text: str = Form(""),
+    files: list[UploadFile] = File(default=[]),
+    user: User = Depends(require_auth),
+):
+    _guard(user, project_id)
+    packed = []
+    for uploaded in files:
+        packed.append({"name": uploaded.filename or "upload", "payload": await uploaded.read()})
+    try:
+        return Response(data=_cases.generate(user.id, project_id, {
+            "source_type": "FILE",
+            "text": text,
+            "files": packed,
+        }))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cases/review", summary="批量评审测试用例")
+def cases_review(payload: CaseBatchBody, user: User = Depends(require_auth)):
+    _guard(user, payload.project_id)
+    try:
+        return Response(data=_cases.review(user.id, payload.project_id, payload.ids, payload.review_status or "", payload.note))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cases/batch", summary="批量修改或删除测试用例")
+def cases_batch(payload: CaseBatchBody, user: User = Depends(require_auth)):
+    _guard(user, payload.project_id)
+    try:
+        if payload.patch and payload.patch.get("delete"):
+            return Response(data=_cases.delete_cases(user.id, payload.project_id, payload.ids))
+        return Response(data=_cases.batch_update(user.id, payload.project_id, payload.ids, payload.patch or {}))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cases/quality", summary="检查用例质量")
+def cases_quality(project_id: int = Query(...), user: User = Depends(require_auth)):
+    _guard(user, project_id)
+    items = _cases.list_cases(user.id, project_id)
+    return Response(data=_cases.check_quality(items))

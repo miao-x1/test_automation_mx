@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button, Empty, Input, Progress, Tag, message } from 'antd';
 import { getCurrentProjectId, PROJECT_CHANGED } from '@/pages/product/projectStore';
-import { createTestTask } from '@/services/projectTestTask';
 import {
   PROJECT_DESIGN_CHANGED,
   PROJECT_REQUIREMENT_CHANGED,
@@ -170,12 +169,8 @@ export default function DesignStudioPage() {
     }
   };
 
-  const goCases = async () => {
-    const projectId = getCurrentProjectId();
-    if (!projectId || !confirmed) return;
-    const created = await createTestTask(projectId, reqName || '测试设计任务', doc?.task_input || '', doc?.objects?.[0]?.module || '');
-    message.success('已把测试设计交给测试用例阶段');
-    navigate(`/test-tasks/${created.id}`);
+  const goCases = () => {
+    navigate('/test-tasks');
   };
 
   const grouped = useMemo(() => {
@@ -224,7 +219,7 @@ export default function DesignStudioPage() {
           <Button onClick={() => openProjectAgent('根据已有需求分析做测试设计')}>✦ Agent 设计</Button>
           <Button type="primary" loading={loading} onClick={() => void design()} disabled={!hasRequirement}>生成设计</Button>
           <Button onClick={() => void confirm()} loading={saving} disabled={!hasResult || confirmed}>确认设计</Button>
-          <Button disabled={!confirmed} onClick={() => void goCases()}>进入测试用例</Button>
+          <Button onClick={() => goCases()}>进入测试用例</Button>
         </div>
       </div>
 
@@ -513,8 +508,8 @@ export default function DesignStudioPage() {
               <div className="ra-actions">
                 <Button onClick={() => void save()} loading={saving} disabled={confirmed}>保存修改</Button>
                 <Button type="primary" onClick={() => void confirm()} loading={saving} disabled={confirmed}>确认测试设计</Button>
-                <Button disabled={!confirmed} onClick={() => void goCases()}>进入测试用例</Button>
-                {confirmed ? <span className="uw-tone-ok">已确认，可作为测试用例输入</span> : <span className="uw-tone-empty">确认后才会交给测试用例阶段</span>}
+                <Button onClick={() => goCases()}>进入测试用例</Button>
+                {confirmed ? <span className="uw-tone-ok">已确认，可作为测试用例的输入来源</span> : <span className="uw-tone-empty">未确认也可以直接去测试用例工作，本页结果只是输入之一</span>}
               </div>
             </div>
           ) : null}

@@ -16,6 +16,7 @@ import {
   type AgentReply,
 } from '@/services/projectExplorer';
 import { PROJECT_PIPELINE_CHANGED } from '@/services/testPipeline';
+import { PROJECT_CASES_CHANGED } from '@/services/testCases';
 import { fetchLifecycleAssets } from '@/services/assetLifecycle';
 import request from '@/services/request';
 import { ProjectSwitcherMenu } from './ProjectHeaderBar';
@@ -161,6 +162,9 @@ export default function ProjectAgentDock() {
       }
       if ((reply?.actions || []).some((item) => item?.type === 'pipeline')) {
         window.dispatchEvent(new CustomEvent(PROJECT_PIPELINE_CHANGED));
+      }
+      if ((reply?.actions || []).some((item) => ['generate_cases', 'generated_cases', 'supplement_exception', 'supplement_boundary'].includes(item?.type || ''))) {
+        window.dispatchEvent(new CustomEvent(PROJECT_CASES_CHANGED));
       }
     } catch (err: any) {
       if (axios.isCancel(err) || err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {

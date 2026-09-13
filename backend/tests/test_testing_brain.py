@@ -10,6 +10,7 @@ from app.services.project_agent import ProjectAgentService
 
 def test_intent_picks_shortest_path():
     assert classify_intent("什么是冒烟测试？") == "answer"
+    assert classify_intent("当前项目有几个api接口") == "answer"
     assert classify_intent("帮我找支付功能在哪个文件") == "locate"
     assert classify_intent("给我登录功能测试用例") == "generate_cases"
     assert classify_intent("分析这个需求") == "analyze_requirement"
@@ -70,7 +71,9 @@ def test_agent_answer_does_not_open_full_flow():
     agent.memory = FakeMemory()
     result = agent.ask(1, 1, "什么是冒烟测试？", workspace="understand")
     assert result["intent"] == "answer"
-    assert "没有进入完整测试流程" in result["answer"]
+    assert "冒烟" in result["answer"]
+    assert "Testing Brain" not in result["answer"]
+    assert "完整测试流程" not in result["answer"]
     assert result["path"] == "直接回答"
 
 
@@ -93,5 +96,45 @@ def test_agent_locate_still_reuses_index():
     agent.memory = FakeMemory()
     result = agent.ask(1, 1, "帮我找支付功能在哪个文件", workspace="understand")
     assert result["intent"] == "locate"
-    assert "没有重新扫描整个仓库" in result["answer"]
-    assert result["locations"] or "pay.py" in result["answer"]
+    assert "Testing Brain" not in result["answer"]
+    assert "pay.py" in result["answer"] or result["locations"]
+
+
+def test_agent_count_uses_current_project_only():
+    agent = ProjectAgentService()
+
+    class FakeIndexer:
+        def query_index(self, user_id, project_id, keyword=None, kind=None, path=None, limit=40):
+            if kind == "api":
+                n = 3 if project_id == 11 else 1
+                return [{"kind": "api", "name": f"api-{i}", "path": "a.py"} for i in range(n)]
+            return []
+
+    class FakeUnderstanding:
+        def snapshot(self, user_id, project_id, refresh=False):
+            n = 3 if project_id == 11 else 1
+            return {
+                "imported": True,
+                "project": {"name": f"项目{project_id}"},
+                "scale": {"apis": n},
+                "apis": [],
+            }
+
+    class FakeMemory:
+        def search(self, *args, **kwargs):
+            return [{"kind": "question", "title": "别的项目", "content": "别的项目有 99 个接口"}]
+        def remember(self, *args, **kwargs):
+            return {}
+
+    agent.indexer = FakeIndexer()
+    agent.memory = FakeMemory()
+    agent.understanding = FakeUnderstanding()
+    first = agent.ask(1, 11, "当前项目有几个api接口", workspace="understand")
+    second = agent.ask(1, 22, "当前项目有几个api接口", workspace="understand")
+    assert first["project_id"] == 11
+    assert second["project_id"] == 22
+    assert "项目11" in first["answer"] and "3" in first["answer"]
+    assert "项目22" in second["answer"] and "1" in second["answer"]
+    assert "99" not in first["answer"]
+    assert "Testing Brain" not in first["answer"]
+    assert "项目记忆" not in first["answer"]

@@ -517,9 +517,16 @@ class ProjectUnderstandingService:
             ).first()
             project = db.query(Project).filter(Project.id == project_id).first()
             if not source:
-                return {"imported": False, "status": "empty", "progress": 0, "steps": [
-                    {"key": key, "label": label, "status": "empty", "count": 0} for key, label in ANALYSIS_STEPS
-                ]}
+                return {
+                    "imported": False,
+                    "status": "empty",
+                    "progress": 0,
+                    "project": {"id": project_id, "name": project.name if project else ""},
+                    "scale": {"pages": 0, "features": 0, "modules": 0, "apis": 0, "files": 0},
+                    "steps": [
+                        {"key": key, "label": label, "status": "empty", "count": 0} for key, label in ANALYSIS_STEPS
+                    ],
+                }
             overview = {}
             if source.overview_json:
                 try:

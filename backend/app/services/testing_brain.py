@@ -32,6 +32,7 @@ INTENT_PATHS = {
 }
 
 _ANSWER_HINTS = ("什么是", "什么叫", "解释一下", "怎么理解", "定义")
+_COUNT_HINTS = ("几个", "多少", "数量", "有几")
 _LOCATE_HINTS = ("哪个文件", "在哪", "定位", "代码在", "找一下", "哪段代码")
 _FULL_HINTS = ("全面测试", "完整测试", "帮我测试这个项目", "帮我测这个项目", "一站式")
 _CASE_HINTS = ("测试用例", "给我", "生成用例", "写用例", "出用例")
@@ -78,6 +79,8 @@ def classify_intent(question: str, workspace: str = "understand") -> str:
     if _contains(text, _TASK_HINTS):
         return "create_task"
     if _contains(text, _ANSWER_HINTS) and "测试" in text and "用例" not in text:
+        return "answer"
+    if _contains(text, _COUNT_HINTS):
         return "answer"
     if _contains(text, _LOCATE_HINTS):
         return "locate"

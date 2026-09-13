@@ -8,10 +8,15 @@ export type ProjectNavGroup = {
   children?: ProjectNavChild[];
 };
 
-export type AppNavKey = 'manage' | 'workspace';
+export type AppNavKey = 'manage' | 'workspace' | 'account';
 
 export function appNavOfPath(pathname: string): AppNavKey {
   if (pathname === '/projects' || pathname.startsWith('/projects')) return 'manage';
+  if (
+    pathname.startsWith('/profile')
+    || pathname.startsWith('/system')
+    || pathname.startsWith('/workspace')
+  ) return 'account';
   return 'workspace';
 }
 

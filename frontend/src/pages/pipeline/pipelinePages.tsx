@@ -242,7 +242,7 @@ export function TestRunPage() {
         </div>
       </div>
       <div className="uw-panel">
-        <p>选择要纳入批次的用例（不选则纳入全部 {cases.length} 条）。</p>
+        <p>选择要纳入批次的用例（不选则优先已评审通过的用例；每条进入批次后都是 NOT_EXECUTED）。</p>
         <Table
           size="small"
           rowKey="id"

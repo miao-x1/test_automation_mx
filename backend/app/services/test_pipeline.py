@@ -15,7 +15,6 @@ from app.models.project_test_task import ProjectTestTask
 from app.models.test_case import TestCase
 from app.models.test_environment import TestEnvironment
 from app.services.project_memory import ProjectMemoryService
-from app.services.project_test_task import serialize_case
 from app.services.test_design_doc import TestDesignDocService
 
 DOC = {
@@ -161,9 +160,15 @@ class TestPipelineService:
                 from sqlalchemy import or_
                 q = q.filter(or_(*clauses))
             rows = q.order_by(TestCase.id.asc()).all()
-            return [serialize_case(row) for row in rows]
+            from app.services.case_workbench import serialize_workbench_case
+            return [serialize_workbench_case(row) for row in rows]
         finally:
             db.close()
+
+    def _downstream_cases(self, user_id: int, project_id: int) -> list[dict[str, Any]]:
+        cases = self.list_cases(user_id, project_id)
+        approved = [item for item in cases if item.get("review_status") == "APPROVED"]
+        return approved or cases
 
     def snapshot(self, user_id: int, project_id: int) -> dict[str, Any]:
         prep = self.get_prep(user_id, project_id)
@@ -198,7 +203,7 @@ class TestPipelineService:
 
     def generate_data(self, user_id: int, project_id: int, count: int = 20) -> dict[str, Any]:
         count = max(1, min(int(count or 20), 500))
-        cases = self.list_cases(user_id, project_id)
+        cases = self._downstream_cases(user_id, project_id)
         if not cases:
             raise ValueError("还没有测试用例。请先在「测试用例」中生成或录入用例，再批量生成测试数据。")
         design = self.designs.get(user_id, project_id)
@@ -235,7 +240,17 @@ class TestPipelineService:
 
     def generate_accounts(self, user_id: int, project_id: int, count: int = 10, roles: Optional[list[str]] = None) -> dict[str, Any]:
         count = max(1, min(int(count or 10), 200))
-        roles = [item for item in (roles or ["普通用户", "管理员", "运营人员", "访客"]) if str(item).strip()]
+        if not roles:
+            blob = " ".join(
+                f"{item.get('precondition') or ''} {item.get('test_data') or ''} {item.get('case_name') or ''}"
+                for item in self._downstream_cases(user_id, project_id)
+            )
+            guessed = []
+            for token in ("管理员", "普通用户", "运营人员", "访客"):
+                if token in blob:
+                    guessed.append(token)
+            roles = guessed or ["普通用户", "管理员", "运营人员", "访客"]
+        roles = [item for item in roles if str(item).strip()]
         if not roles:
             roles = ["普通用户"]
         prep = self.get_prep(user_id, project_id)
@@ -353,6 +368,9 @@ class TestPipelineService:
             raise ValueError("还没有测试用例，无法创建执行批次")
         wanted = set(int(x) for x in (case_ids or []) if x)
         selected = [item for item in cases if not wanted or item.get("id") in wanted]
+        if not wanted:
+            approved = [item for item in selected if item.get("review_status") == "APPROVED"]
+            selected = approved or selected
         if not selected:
             raise ValueError("没有选中可执行的测试用例")
         prep = self.get_prep(user_id, project_id)
@@ -734,8 +752,8 @@ class TestPipelineService:
             db.close()
 
     def _req_ids_for_case(self, design: dict[str, Any], case: dict[str, Any]) -> list[str]:
+        ids = [str(item) for item in (case.get("requirement_ids") or []) if item]
         blob = f"{case.get('case_name') or ''} {case.get('scenario') or ''} {case.get('module') or ''}"
-        ids = []
         for item in design.get("objects") or []:
             if item.get("name") and item.get("name") in blob:
                 ids.extend(item.get("req_ids") or [])

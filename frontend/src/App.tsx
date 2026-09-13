@@ -71,8 +71,8 @@ import {
   PagesSection,
 } from './pages/understand/UnderstandViews';
 import { AgentSection } from './pages/understand/UnderstandAgent';
-import TestTaskListPage from './pages/product/TestTaskListPage';
 import TestTaskWorkbenchPage from './pages/product/TestTaskWorkbenchPage';
+import CaseWorkbenchPage from './pages/shell/CaseWorkbenchPage';
 import { getCurrentProjectId, setCurrentProjectId } from './pages/product/projectStore';
 import { fetchWorkspace } from './services/workspace';
 import ProjectWorkspaceLayout from './pages/shell/ProjectWorkspaceLayout';
@@ -190,7 +190,7 @@ function AppRoutes() {
           </Route>
           <Route path="/design" element={<DesignStudioPage />} />
           <Route path="/design/:section" element={<DesignStudioPage />} />
-          <Route path="/test-tasks" element={<TestTaskListPage />} />
+          <Route path="/test-tasks" element={<CaseWorkbenchPage />} />
           <Route path="/test-tasks/:id" element={<TestTaskWorkbenchRoute />} />
           <Route path="/prepare" element={<TestPrepPage />} />
           <Route path="/execute" element={<TestRunPage />} />
